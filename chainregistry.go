@@ -44,6 +44,15 @@ var defaultLitecoinForwardingPolicy = htlcswitch.ForwardingPolicy{
 	TimeLockDelta: 576,
 }
 
+// defaultViacoinForwardingPolicy is the default forwarding policy used for
+// Viacoin channels.
+var defaultViacoinForwardingPolicy = htlcswitch.ForwardingPolicy{
+	MinHTLC:       0,
+	BaseFee:       1,
+	FeeRate:       1,
+	TimeLockDelta: 3600,
+}
+
 // defaultChannelConstraints is the default set of channel constraints that are
 // meant to be used when initially funding a channel.
 //
@@ -63,6 +72,9 @@ const (
 
 	// litecoinChain is Litecoin's testnet chain.
 	litecoinChain
+
+	// viacoinChain is Viacoin's testnet chain.
+	viacoinChain
 )
 
 // String returns a string representation of the target chainCode.
@@ -72,6 +84,8 @@ func (c chainCode) String() string {
 		return "bitcoin"
 	case litecoinChain:
 		return "litecoin"
+	case viacoinChain:
+		return "viacoin"
 	default:
 		return "kekcoin"
 	}
@@ -109,6 +123,11 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 	if registeredChains.PrimaryChain() == litecoinChain {
 		homeChainConfig = cfg.Litecoin
 	}
+
+	if registeredChains.PrimaryChain() == viacoinChain {
+		homeChainConfig = cfg.Viacoin
+	}
+
 	ltndLog.Infof("Primary chain is set to: %v",
 		registeredChains.PrimaryChain())
 
@@ -124,6 +143,11 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB) (*chainControl
 		cc.routingPolicy = defaultLitecoinForwardingPolicy
 		cc.feeEstimator = lnwallet.StaticFeeEstimator{
 			FeeRate: 100,
+		}
+	case viacoinChain:
+		cc.routingPolicy = defaultViacoinForwardingPolicy
+		cc.feeEstimator = lnwallet.StaticFeeEstimator{
+			FeeRate: 100, // Needs double check
 		}
 	default:
 		return nil, nil, fmt.Errorf("Default routing policy for "+
@@ -323,11 +347,20 @@ var (
 		0xd9, 0x51, 0x28, 0x4b, 0x5a, 0x62, 0x66, 0x49,
 	})
 
+	// viacoinGenesis is the genesis hash of Viacoin's testnet 3 chain.
+	viacoinGenesis = chainhash.Hash([chainhahs.HashSize]byte{
+		0x43, 0x49, 0x7f, 0xd7, 0xf8, 0x26, 0x95, 0x71,
+		0x08, 0xf4, 0xa3, 0x0f, 0xd9, 0xce, 0xc3, 0xae,
+		0xba, 0x79, 0x97, 0x20, 0x84, 0xe9, 0x0e, 0xad,
+		0x01, 0xea, 0x33, 0x09, 0x00, 0x00, 0x00, 0x00,
+	})
+
 	// chainMap is a simple index that maps a chain's genesis hash to the
 	// chainCode enum for that chain.
 	chainMap = map[chainhash.Hash]chainCode{
 		bitcoinGenesis:  bitcoinChain,
 		litecoinGenesis: litecoinChain,
+		viacoinGenesis:  viacoinChain,
 	}
 
 	// reverseChainMap is the inverse of the chainMap above: it maps the
@@ -335,6 +368,7 @@ var (
 	reverseChainMap = map[chainCode]chainhash.Hash{
 		bitcoinChain:  bitcoinGenesis,
 		litecoinChain: litecoinGenesis,
+		viacoinChain:  viacoinGenesis,
 	}
 
 	// chainDNSSeeds is a map of a chain's hash to the set of DNS seeds
