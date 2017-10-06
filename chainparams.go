@@ -105,3 +105,40 @@ func applyLitecoinParams(params *bitcoinNetParams) {
 
 	params.rpcPort = liteTestNetParams.rpcPort
 }
+
+func applyViacoinParams(params *bitcoinNetParams) {
+	params.Name = viaTestNetParams.Name
+	params.Net = wire.BitcoinNet(viaTestNetParams.Net)
+	params.DefaultPort = viaTestNetParams.DefaultPort
+	params.CoinbaseMaturity = viaTestNetParams.CoinbaseMaturity
+
+	copy(params.GenesisHash[:], viaTestNetParams.GenesisHash[:])
+
+	// Address encoding magics
+	params.PubKeyHashAddrID = viaTestNetParams.PubKeyHashAddrID
+	params.ScriptHashAddrID = viaTestNetParams.ScriptHashAddrID
+	params.PrivateKeyID = viaTestNetParams.PrivateKeyID
+	params.WitnessPubKeyHashAddrID = viaTestNetParams.WitnessPubKeyHashAddrID
+	params.WitnessScriptHashAddrID = viaTestNetParams.WitnessScriptHashAddrID
+	params.Bech32HRPSegwit = viaTestNetParams.Bech32HRPSegwit
+
+	copy(params.HDPrivateKeyID[:], viaTestNetParams.HDPrivateKeyID[:])
+	copy(params.HDPublicKeyID[:], viaTestNetParams.HDPublicKeyID[:])
+
+	params.HDCoinType = viaTestNetParams.HDCoinType
+
+	checkPoints := make([]chaincfg.Checkpoint, len(viaTestNetParams.Checkpoints))
+	for i := 0; i < len(viaTestNetParams.Checkpoints); i++ {
+		var chainHash chainhash.Hash
+		copy(chainHash[:], viaTestNetParams.Checkpoints[i].Hash[:])
+
+		checkPoints[i] = chaincfg.Checkpoint{
+			Height: viaTestNetParams.Checkpoints[i].Height,
+			Hash:   &chainHash,
+		}
+	}
+	params.Checkpoints = checkPoints
+
+	params.rpcPort = viaTestNetParams.rpcPort
+}
+
