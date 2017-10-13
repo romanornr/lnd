@@ -116,6 +116,7 @@ type config struct {
 	HodlHTLC           bool `long:"hodlhtlc" description:"Activate the hodl HTLC mode.  With hodl HTLC mode, all incoming HTLCs will be accepted by the receiving node, but no attempt will be made to settle the payment with the sender."`
 	MaxPendingChannels int  `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 
+	Viacoin  *chainConfig `group:"Viacoin" namespace:"viacoin"`
 	Litecoin *chainConfig `group:"Litecoin" namespace:"litecoin"`
 	Bitcoin  *chainConfig `group:"Bitcoin" namespace:"bitcoin"`
 
@@ -155,6 +156,10 @@ func loadConfig() (*config, error) {
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultBtcdRPCCertFile,
 		},
+		Viacoin: &chainConfig{
+			RPCHost: defaultRPCHost,
+			RPCCert: defaulViadRPCCertFile
+		}
 		Litecoin: &chainConfig{
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultLtcdRPCCertFile,
@@ -221,11 +226,28 @@ func loadConfig() (*config, error) {
 		return nil, err
 	}
 
+	// At this moment, multiple active chains are not supported.
+	if cfg.Viacoin.Active && cfg.Bitcoin.Active {
+		str := "%s: Currently both Bitcoin and Viacoin cannot be " +
+			"active together"
+		err := fmt.Errorf(str, funcName)
+		return nil, err
+	}
+
 	// The SPV mode implemented currently doesn't support Litecoin, so the
 	// two modes are incompatible.
 	if cfg.NeutrinoMode.Active && cfg.Litecoin.Active {
 		str := "%s: The light client mode currently supported does " +
 			"not yet support execution on the Litecoin network"
+		err := fmt.Errorf(str, funcName)
+		return nil, err
+	}
+
+	// The SPV mode implemented currently doesn't support Viacoin, so the
+	// two modes are incompatible
+	if cfg.NeutrinoMode.Active && cfg.Viacoin.Active {
+		str := "%s: The light client mode currently supported does " +
+			"not yet support execution on the Viacoin network"
 		err := fmt.Errorf(str, funcName)
 		return nil, err
 	}
@@ -261,6 +283,40 @@ func loadConfig() (*config, error) {
 		// primary chain.
 		registeredChains.RegisterPrimaryChain(litecoinChain)
 	}
+
+	//Viacoin
+	if cfg.Viacoin.Active {
+		if cfg.Viacoin.SimNet {
+			str := "%s: simnet mode for viacoin not currently supported"
+			return nil, fmt.Errorf(str, funcName)
+		}
+
+		// The viacoin chain is the current active chain. However
+		// throuhgout the codebase we required chiancfg.Params. So as a
+		// temporary hack, we'll mutate the default net params for
+		// bitcoin with the viacoin specific informat.ion
+		paramCopy := bitcoinTestNetParams
+		applyViacoinParams(&paramCopy)
+		activeNetParams = paramCopy
+
+		if !cfg.NeutrinoMode.Active {
+			// Attempt to parse out the RPC credentials for the
+			// viacoin chain if the information wasn't specified
+			err := parseRPCParams(cfg.Viacoin, viacoinChain, funcName)
+			if err != nil {
+				err := fmt.Errorf("unable to load RPC credentials for "+
+					"ltcd: %v", err)
+				return nil, err
+			}
+		}
+
+		cfg.Viacoin.ChainDir = filepath.Join(cfg.DataDir, viacoinChain.String())
+
+		// Finally we'll register the viacoin chain as our current
+		// primary chain.
+		registeredChains.RegisterPrimaryChain(viacoinChain)
+	}
+
 	if cfg.Bitcoin.Active {
 		// Multiple networks can't be selected simultaneously.  Count
 		// number of network flags passed; assign active network params
@@ -505,12 +561,22 @@ func parseRPCParams(cConfig *chainConfig, net chainCode, funcName string) error 
 	if net == litecoinChain {
 		daemonName = "ltcd"
 	}
+
+	if net == viacoinChain {
+		daemonName = "viad"
+	}
+
 	fmt.Println("Attempting automatic RPC configuration to " + daemonName)
 
 	homeDir := btcdHomeDir
 	if net == litecoinChain {
 		homeDir = ltcdHomeDir
 	}
+
+	if net == viacoinChain {
+		homeDir = viadHomeDir
+	}
+	
 	confFile := filepath.Join(homeDir, fmt.Sprintf("%v.conf", daemonName))
 	rpcUser, rpcPass, err := extractRPCParams(confFile)
 	if err != nil {
