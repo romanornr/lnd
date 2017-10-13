@@ -53,6 +53,9 @@ var (
 
 	ltcdHomeDir            = btcutil.AppDataDir("ltcd", false)
 	defaultLtcdRPCCertFile = filepath.Join(ltcdHomeDir, "rpc.cert")
+
+	viadHomeDir = btcutil.AppDataDir("viad", false)
+	defaultViadRPCCertFile = filepath.Join(viadHomeDir, "rpc.cert")
 )
 
 type chainConfig struct {
@@ -305,7 +308,7 @@ func loadConfig() (*config, error) {
 			err := parseRPCParams(cfg.Viacoin, viacoinChain, funcName)
 			if err != nil {
 				err := fmt.Errorf("unable to load RPC credentials for "+
-					"ltcd: %v", err)
+					"viad: %v", err)
 				return nil, err
 			}
 		}
@@ -576,7 +579,7 @@ func parseRPCParams(cConfig *chainConfig, net chainCode, funcName string) error 
 	if net == viacoinChain {
 		homeDir = viadHomeDir
 	}
-	
+
 	confFile := filepath.Join(homeDir, fmt.Sprintf("%v.conf", daemonName))
 	rpcUser, rpcPass, err := extractRPCParams(confFile)
 	if err != nil {
