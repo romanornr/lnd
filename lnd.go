@@ -326,7 +326,7 @@ func lndMain() error {
 	// continue the start up of the remainder of the daemon. This ensures
 	// that we don't accept any possibly invalid state transitions, or
 	// accept channels with spent funds.
-	if !(cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet) {
+	if !(cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet || cfg.Viacoin.SimNet) {
 		_, bestHeight, err := activeChainControl.chainIO.GetBestBlock()
 		if err != nil {
 			return err
