@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
-	"github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -385,7 +384,7 @@ func (s *server) Start() error {
 	// If network bootstrapping hasn't been disabled, then we'll configure
 	// the set of active bootstrappers, and launch a dedicated goroutine to
 	// maintain a set of persistent connections.
-	if !cfg.NoNetBootstrap && !(cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet) {
+	if !cfg.NoNetBootstrap && !(cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet || cfg.Viacoin.SimNet) {
 		networkBootStrappers, err := initNetworkBootstrappers(s)
 		if err != nil {
 			return err
@@ -466,7 +465,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 
 	// If this isn't simnet mode, then one of our additional bootstrapping
 	// sources will be the set of running DNS seeds.
-	if !cfg.Bitcoin.SimNet || !cfg.Litecoin.SimNet {
+	if !cfg.Bitcoin.SimNet || !cfg.Litecoin.SimNet || !cfg.Viacoin.SimNet {
 		chainHash := reverseChainMap[registeredChains.PrimaryChain()]
 		dnsSeeds, ok := chainDNSSeeds[chainHash]
 
