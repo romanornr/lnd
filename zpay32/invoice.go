@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/viacoin/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"

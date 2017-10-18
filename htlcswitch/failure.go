@@ -4,7 +4,7 @@ import (
 	"bytes"
 
 	"github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/viacoin/lnd/lnwire"
 )
 
 // Deobfuscator is an interface that is used to decrypt the onion encrypted

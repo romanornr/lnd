@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/viacoin/lnd/lnwire"
 )
 
 // NetworkHop indicates the blockchain network that is intended to be the next
