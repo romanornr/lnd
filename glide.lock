@@ -82,6 +82,12 @@ imports:
   - chaincfg
   - chaincfg/chainhash
   - wire
+- name: github.com/viacoin/viad
+  version: 1c0490c73d220336491f19486b21879feefff5e4
+  subpackages:
+  - chaincfg
+  - chaincfg/chainhash
+  - wire
 - name: github.com/roasbeef/btcd
   version: 4b411f0e78f1faa96ae650d886170d018c1835bf
   subpackages:
