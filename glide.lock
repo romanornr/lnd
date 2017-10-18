@@ -1,5 +1,5 @@
-hash: 51c542f20a78b27084dc52c7f6f8234d8ebb8539165700957a565ac866b65b6d
-updated: 2017-10-01T14:43:37.338697057-07:00
+hash: 11fe86d8c8a912575dbd231a76467011ff95e5aad2acab4768f230d89309aa90
+updated: 2017-10-18T15:33:57.22313423+02:00
 imports:
 - name: github.com/aead/chacha20
   version: d31a916ded42d1640b9d89a26f8abd53cc96790c
@@ -40,13 +40,13 @@ imports:
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/davecgh/go-spew
-  version: a476722483882dd40b8111f0eb64e1d7f43f56e4
+  version: adab96458c51a58dc1783b3335dcce5461522e75
   subpackages:
   - spew
 - name: github.com/go-errors/errors
   version: 8fa88b06e5974e97fbf9899a7f86a344bfd1f105
 - name: github.com/golang/protobuf
-  version: ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
+  version: 130e6b02ab059e7b717a096f397c5b60111cae74
   subpackages:
   - jsonpb
   - proto
@@ -78,12 +78,6 @@ imports:
   version: 1d52214c016402c9cb78d479895afb370597b488
 - name: github.com/ltcsuite/ltcd
   version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
-  subpackages:
-  - chaincfg
-  - chaincfg/chainhash
-  - wire
-- name: github.com/viacoin/viad
-  version: 1c0490c73d220336491f19486b21879feefff5e4
   subpackages:
   - chaincfg
   - chaincfg/chainhash
@@ -141,6 +135,12 @@ imports:
   version: 501572607d0273fc75b3b261fa4904d63f6ffa0e
 - name: github.com/urfave/cli
   version: cfb38830724cc34fedffe9a2a29fb54fa9169cd1
+- name: github.com/viacoin/viad
+  version: 1c0490c73d220336491f19486b21879feefff5e4
+  subpackages:
+  - chaincfg
+  - chaincfg/chainhash
+  - wire
 - name: golang.org/x/crypto
   version: 81e90905daefcd6fd217b62423c0908922eadb30
   subpackages:
@@ -157,7 +157,7 @@ imports:
   - salsa20/salsa
   - scrypt
 - name: golang.org/x/net
-  version: 66aacef3dd8a676686c7ae3716979581e8b03c47
+  version: 1087133bc4af3073e18add999345c6ae75918503
   subpackages:
   - context
   - http2
@@ -167,18 +167,18 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: ab9e364efd8b52800ff7ee48a9ffba4e0ed78dfb
+  version: 396c9fc8fb0ce27fc7a1ff136dc5af797bba258a
   subpackages:
   - unix
 - name: golang.org/x/text
-  version: 18c65dde6afd36dbc39197ca72008895b8dfbfb6
+  version: 3bd178b88a8180be2df394a1fbb81313916f0e7b
   subpackages:
   - secure/bidirule
   - transform
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/genproto
-  version: 1e559d0a00eef8a9a43151db4665280bd8dd5886
+  version: f676e0f3ac6395ff1a529ae59a6670878a8371a6
   subpackages:
   - googleapis/api/annotations
   - googleapis/rpc/status
