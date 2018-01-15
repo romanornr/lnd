@@ -161,7 +161,8 @@ func loadConfig() (*config, error) {
 		},
 		Viacoin: &chainConfig{
 			RPCHost: defaultRPCHost,
-			RPCCert: defaulViadRPCCertFile,
+			RPCCert: defaultViadRPCCertFile,
+			
 		},
 		Litecoin: &chainConfig{
 			RPCHost: defaultRPCHost,
@@ -210,7 +211,7 @@ func loadConfig() (*config, error) {
 
 	// Next, load any additional configuration options from the file.
 	var configFileError error
-	var cfg = defaultCfg
+	var cfg = defaultCfg // can't do a := 1 (:) only works inside functions we use var a = 1 
 	if err := flags.IniParse(preCfg.ConfigFile, &cfg); err != nil {
 		configFileError = err
 	}
