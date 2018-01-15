@@ -57,7 +57,7 @@ var liteTestNetParams = litecoinNetParams{
 
 var viaTestNetParams = viacoinNetParams{
 	Params: &viacoinCfg.TestNet3Params,
-	rpcPort: "19224"
+	rpcPort: "19224",
 }
 
 // regTestNetParams contains parameters specific to a local regtest network.
