@@ -11,6 +11,10 @@ import (
 	"time"
 
 	"github.com/lightninglabs/neutrino"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/rpcclient"
+	"github.com/roasbeef/btcwallet/chain"
+	"github.com/roasbeef/btcwallet/walletdb"
 	"github.com/viacoin/lnd/chainntnfs"
 	"github.com/viacoin/lnd/chainntnfs/btcdnotify"
 	"github.com/viacoin/lnd/chainntnfs/neutrinonotify"
@@ -20,10 +24,6 @@ import (
 	"github.com/viacoin/lnd/lnwallet/btcwallet"
 	"github.com/viacoin/lnd/lnwire"
 	"github.com/viacoin/lnd/routing/chainview"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcwallet/chain"
-	"github.com/roasbeef/btcwallet/walletdb"
 )
 
 // defaultBitcoinForwardingPolicy is the default forwarding policy used for

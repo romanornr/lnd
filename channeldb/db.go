@@ -9,9 +9,9 @@ import (
 	"sync"
 
 	"github.com/boltdb/bolt"
-	"github.com/viacoin/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/viacoin/lnd/lnwire"
 )
 
 const (

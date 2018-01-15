@@ -2,9 +2,9 @@ package htlcswitch
 
 import (
 	"encoding/binary"
-	"io"
 	"github.com/lightningnetwork/lightning-onion"
 	"github.com/viacoin/lnd/lnwire"
+	"io"
 )
 
 // NetworkHop indicates the blockchain network that is intended to be the next

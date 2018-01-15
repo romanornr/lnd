@@ -16,15 +16,15 @@ import (
 
 	"github.com/roasbeef/btcwallet/chain"
 
+	"github.com/roasbeef/btcd/chaincfg"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 	"github.com/viacoin/lnd/chainntnfs"
 	"github.com/viacoin/lnd/chainntnfs/btcdnotify"
 	"github.com/viacoin/lnd/channeldb"
 	"github.com/viacoin/lnd/lnwallet"
 	"github.com/viacoin/lnd/lnwallet/btcwallet"
 	"github.com/viacoin/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	_ "github.com/roasbeef/btcwallet/walletdb/bdb"
 
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/integration/rpctest"

@@ -10,13 +10,13 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 	"github.com/viacoin/lnd/channeldb"
 	"github.com/viacoin/lnd/lnwallet"
 	"github.com/viacoin/lnd/lnwire"
 	"github.com/viacoin/lnd/routing/chainview"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 
 	"crypto/sha256"
 

@@ -56,7 +56,7 @@ var liteTestNetParams = litecoinNetParams{
 }
 
 var viaTestNetParams = viacoinNetParams{
-	Params: &viacoinCfg.TestNet3Params,
+	Params:  &viacoinCfg.TestNet3Params,
 	rpcPort: "19224",
 }
 
@@ -141,4 +141,3 @@ func applyViacoinParams(params *bitcoinNetParams) {
 
 	params.rpcPort = viaTestNetParams.rpcPort
 }
-

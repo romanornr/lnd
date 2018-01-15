@@ -11,11 +11,11 @@ import (
 	"github.com/davecgh/go-spew/spew"
 
 	"github.com/go-errors/errors"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 	"github.com/viacoin/lnd/lnrpc"
 	"github.com/viacoin/lnd/lnwallet"
 	"github.com/viacoin/lnd/lnwire"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 )
 
 var (

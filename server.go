@@ -13,6 +13,11 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/lightningnetwork/lightning-onion"
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/connmgr"
+	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 	"github.com/viacoin/lnd/autopilot"
 	"github.com/viacoin/lnd/brontide"
 	"github.com/viacoin/lnd/channeldb"
@@ -20,11 +25,6 @@ import (
 	"github.com/viacoin/lnd/lnrpc"
 	"github.com/viacoin/lnd/lnwire"
 	"github.com/viacoin/lnd/routing"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/connmgr"
-	"github.com/roasbeef/btcd/wire"
-	"github.com/roasbeef/btcutil"
 
 	"github.com/go-errors/errors"
 	"github.com/viacoin/lnd/htlcswitch"

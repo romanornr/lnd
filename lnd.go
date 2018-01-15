@@ -28,14 +28,14 @@ import (
 
 	flags "github.com/btcsuite/go-flags"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/roasbeef/btcd/btcec"
+	"github.com/roasbeef/btcutil"
 	"github.com/viacoin/lnd/autopilot"
 	"github.com/viacoin/lnd/channeldb"
 	"github.com/viacoin/lnd/lnrpc"
 	"github.com/viacoin/lnd/lnwallet"
 	"github.com/viacoin/lnd/lnwire"
 	"github.com/viacoin/lnd/macaroons"
-	"github.com/roasbeef/btcd/btcec"
-	"github.com/roasbeef/btcutil"
 )
 
 const (
