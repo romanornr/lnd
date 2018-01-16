@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/viacoin/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcutil/bech32"
+	"github.com/viacoin/lnd/lnwire"
 )
 
 const (

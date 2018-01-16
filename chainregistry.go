@@ -11,6 +11,10 @@ import (
 	"time"
 
 	"github.com/lightninglabs/neutrino"
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/rpcclient"
+	"github.com/roasbeef/btcwallet/chain"
+	"github.com/roasbeef/btcwallet/walletdb"
 	"github.com/viacoin/lnd/chainntnfs"
 	"github.com/viacoin/lnd/chainntnfs/btcdnotify"
 	"github.com/viacoin/lnd/chainntnfs/neutrinonotify"
@@ -20,10 +24,6 @@ import (
 	"github.com/viacoin/lnd/lnwallet/btcwallet"
 	"github.com/viacoin/lnd/lnwire"
 	"github.com/viacoin/lnd/routing/chainview"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
-	"github.com/roasbeef/btcd/rpcclient"
-	"github.com/roasbeef/btcwallet/chain"
-	"github.com/roasbeef/btcwallet/walletdb"
 )
 
 // defaultBitcoinForwardingPolicy is the default forwarding policy used for
@@ -348,7 +348,7 @@ var (
 	})
 
 	// viacoinGenesis is the genesis hash of Viacoin's testnet 3 chain.
-	viacoinGenesis = chainhash.Hash([chainhahs.HashSize]byte{
+	viacoinGenesis = chainhash.Hash([chainhash.HashSize]byte{
 		0x43, 0x49, 0x7f, 0xd7, 0xf8, 0x26, 0x95, 0x71,
 		0x08, 0xf4, 0xa3, 0x0f, 0xd9, 0xce, 0xc3, 0xae,
 		0xba, 0x79, 0x97, 0x20, 0x84, 0xe9, 0x0e, 0xad,

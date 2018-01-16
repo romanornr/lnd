@@ -1,10 +1,10 @@
 package htlcswitch
 
 import (
+	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/viacoin/lnd/channeldb"
 	"github.com/viacoin/lnd/lnwallet"
 	"github.com/viacoin/lnd/lnwire"
-	"github.com/roasbeef/btcd/chaincfg/chainhash"
 )
 
 // InvoiceDatabase is an interface which represents the persistent subsystem

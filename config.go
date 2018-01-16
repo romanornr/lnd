@@ -13,10 +13,10 @@ import (
 	"time"
 
 	flags "github.com/btcsuite/go-flags"
-	"github.com/viacoin/lnd/brontide"
-	"github.com/viacoin/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcutil"
+	"github.com/viacoin/lnd/brontide"
+	"github.com/viacoin/lnd/lnwire"
 )
 
 const (
@@ -54,7 +54,7 @@ var (
 	ltcdHomeDir            = btcutil.AppDataDir("ltcd", false)
 	defaultLtcdRPCCertFile = filepath.Join(ltcdHomeDir, "rpc.cert")
 
-	viadHomeDir = btcutil.AppDataDir("viad", false)
+	viadHomeDir            = btcutil.AppDataDir("viad", false)
 	defaultViadRPCCertFile = filepath.Join(viadHomeDir, "rpc.cert")
 )
 
@@ -161,8 +161,8 @@ func loadConfig() (*config, error) {
 		},
 		Viacoin: &chainConfig{
 			RPCHost: defaultRPCHost,
-			RPCCert: defaulViadRPCCertFile
-		}
+			RPCCert: defaultViadRPCCertFile,
+		},
 		Litecoin: &chainConfig{
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultLtcdRPCCertFile,
@@ -210,7 +210,7 @@ func loadConfig() (*config, error) {
 
 	// Next, load any additional configuration options from the file.
 	var configFileError error
-	cfg := defaultCfg
+	var cfg = defaultCfg // can't do a := 1 (:) only works inside functions we use var a = 1
 	if err := flags.IniParse(preCfg.ConfigFile, &cfg); err != nil {
 		configFileError = err
 	}

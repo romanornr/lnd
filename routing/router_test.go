@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viacoin/lnd/channeldb"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/viacoin/lnd/channeldb"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lightning-onion"
-	"github.com/viacoin/lnd/lnwire"
 	"github.com/roasbeef/btcd/btcec"
+	"github.com/viacoin/lnd/lnwire"
 )
 
 type testCtx struct {
