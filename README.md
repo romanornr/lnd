@@ -1,10 +1,10 @@
 ## Lightning Network Daemon
 
-[![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)](https://travis-ci.org/lightningnetwork/lnd) 
+[![Build Status](http://img.shields.io/travis/viacoin/lnd.svg)](https://travis-ci.org/viacoin/lnd) 
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/viacoin/lnd/blob/master/LICENSE) 
 [![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)](https://webchat.freenode.net/?channels=lnd) 
-[![Godoc](https://godoc.org/github.com/lightningnetwork/lnd?status.svg)](https://godoc.org/github.com/lightningnetwork/lnd)
-[![Coverage Status](https://coveralls.io/repos/github/viacoin/lnd/badge.svg?branch=master)](https://coveralls.io/github/lightningnetwork/lnd?branch=master)
+[![Godoc](https://godoc.org/github.com/viacoin/lnd?status.svg)](https://godoc.org/github.com/viacoin/lnd)
+[![Coverage Status](https://coveralls.io/repos/github/viacoin/lnd/badge.svg?branch=master)](https://coveralls.io/github/viacoin/lnd?branch=master)
 
 <img src="logo.png">
 
@@ -22,14 +22,14 @@ within it.  In the current state `lnd` is capable of:
 * Completely managing all channel states (including the exceptional ones!).
 * Maintaining a fully authenticated+validated channel graph.
 * Performing path finding within the network, passively forwarding incoming payments.
-* Sending outgoing [onion-encrypted payments](https://github.com/lightningnetwork/lightning-onion) 
+* Sending outgoing [onion-encrypted payments](https://github.com/viacoin/lightning-onion) 
 through the network.
 * Updating advertised fee schedules.
 * Automatic channel management ([`autopilot`](https://github.com/viacoin/lnd/tree/master/autopilot)).
 
 ## Lightning Network Specification Compliance
 `lnd` doesn't yet _fully_ conform to the [Lightning Network specification
-(BOLTs)](https://github.com/lightningnetwork/lightning-rfc). BOLT stands for:
+(BOLTs)](https://github.com/viacoin/lightning-rfc). BOLT stands for:
 Basic of Lightning Technologies. The specifications are currently being drafted
 by several groups of implementers based around the world including the
 developers of `lnd`. The set of specification documents as well as our

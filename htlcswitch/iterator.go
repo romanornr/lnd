@@ -2,7 +2,7 @@ package htlcswitch
 
 import (
 	"encoding/binary"
-	"github.com/lightningnetwork/lightning-onion"
+	"github.com/viacoin/lightning-onion"
 	"github.com/viacoin/lnd/lnwire"
 	"io"
 )

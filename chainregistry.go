@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/neutrino"
-	"github.com/radicalrafi/lnd/chainntnfs/bitcoindnotify"
+	"github.com/viacoin/lnd/chainntnfs/bitcoindnotify"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/rpcclient"
 	"github.com/roasbeef/btcutil"

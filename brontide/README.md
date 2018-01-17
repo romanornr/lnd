@@ -1,7 +1,7 @@
 brontide
 ==========
 
-[![Build Status](http://img.shields.io/travis/lightningnetwork/lnd.svg)](https://travis-ci.org/lightningnetwork/lnd) 
+[![Build Status](http://img.shields.io/travis/viacoin/lnd.svg)](https://travis-ci.org/viacoin/lnd) 
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/viacoin/lnd/blob/master/LICENSE)
 [![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)](http://godoc.org/github.com/viacoin/lnd/brontide)
 
@@ -15,7 +15,7 @@ which allows the encrypted transport to be seamlessly integrated into a
 codebase.
 
 The secure messaging scheme implemented within this package is described in
-detail in [BOLT #8 of the Lightning Network specifications](https://github.com/lightningnetwork/lightning-rfc/blob/master/08-transport.md).
+detail in [BOLT #8 of the Lightning Network specifications](https://github.com/viacoin/lightning-rfc/blob/master/08-transport.md).
 
 This package has intentionally been designed so it can be used as a standalone
 package for any projects needing secure encrypted+authenticated communications

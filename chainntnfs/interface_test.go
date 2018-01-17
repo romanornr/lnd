@@ -28,7 +28,7 @@ import (
 
 	// Required to auto-register the bitcoind backed ChainNotifier
 	// implementation.
-	_ "github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
+	_ "github.com/viacoin/lnd/chainntnfs/bitcoindnotify"
 
 	// Required to auto-register the btcd backed ChainNotifier
 	// implementation.

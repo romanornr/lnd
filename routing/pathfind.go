@@ -8,7 +8,7 @@ import (
 	"container/heap"
 
 	"github.com/boltdb/bolt"
-	"github.com/lightningnetwork/lightning-onion"
+	"github.com/viacoin/lightning-onion"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcutil"
