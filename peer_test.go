@@ -14,7 +14,7 @@ import (
 	"github.com/viacoin/lnd/lnrpc"
 	"github.com/viacoin/lnd/lnwallet"
 	"github.com/viacoin/lnd/lnwire"
-	"http://github.com/viacoin/viautil"
+	"github.com/viacoin/viautil"
 )
 
 func init() {
