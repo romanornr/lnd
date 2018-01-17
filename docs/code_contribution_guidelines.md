@@ -38,8 +38,8 @@ represent real money and introducing bugs and security vulnerabilities can have
 far more dire consequences than in typical projects where having a small bug is
 minimal by comparison.  In the world of cryptocurrencies, even the smallest bug
 in the wrong area can cost people a significant amount of money.  For this
-reason, the Lightning Network Daemon (lnd) has a formalized and rigorous
-development process (heavily insipred by
+reason, the Lightning Network Daemon (`lnd`) has a formalized and rigorous
+development process (heavily inspired by
 [btcsuite](https://github.com/btcsuite)) which is outlined on this page.
 
 We highly encourage code contributions, however it is imperative that you adhere
@@ -78,7 +78,7 @@ security and performance implications.
 
 ### 3. Required Reading
 
-- [Effective Go](http://golang.org/doc/effective_go.html) - The entire lnd 
+- [Effective Go](http://golang.org/doc/effective_go.html) - The entire `lnd` 
   project follows the guidelines in this document.  For your code to be accepted,
   it must follow the guidelines therein.
 - [Original Satoshi Whitepaper](https://bitcoin.org/bitcoin.pdf) - This is the white paper that started it all.  Having a solid
@@ -97,7 +97,7 @@ above may be a bit out of date. Many implementers are currently working on an
 initial [Version 1 Specification](https://medium.com/@lightningnetwork/lightning-network-meeting-on-interoperability-and-specifications-ea49e47696a4).
 Once the specification is finalized, it will be the most up-to-date
 comprehensive document explaining the Lightning Network. As a result, it will
-be recommened for newcomers to read first in order to get up to speed. 
+be recommended for newcomers to read first in order to get up to speed. 
 
 <a name="DevelopmentPractices" />
 
@@ -132,7 +132,7 @@ This approach has several benefits:
 
 #### 4.2. Testing
 
-One of the major design goals of all of lnd's packages and the daemon itself is
+One of the major design goals of all of `lnd`'s packages and the daemon itself is
 to aim for a high degree of test coverage.  This is financial software so bugs
 and regressions in the core logic can cost people real money.  For this reason
 every effort must be taken to ensure the code is as accurate and bug-free as
@@ -286,7 +286,7 @@ all short-[commit messages are to be prefixed according to the convention
 outlined in the Go project](https://golang.org/doc/contribute.html#change). All
 commits should begin with the subsystem or package primarily affected by the
 change. In the case of a widespread change, the packages are to be delimited by
-either a '+' or a ','. This prefix seems minor but can be extremly helpful in
+either a '+' or a ','. This prefix seems minor but can be extremely helpful in
 determining the scope of a commit at a glance, or when bug hunting to find a
 commit which introduced a bug or regression. 
 
@@ -294,7 +294,7 @@ commit which introduced a bug or regression.
 
 #### 4.5. Code Spacing 
 
-Blocks of code within lnd should be segmented into logical stanzas of
+Blocks of code within `lnd` should be segmented into logical stanzas of
 operation. Such spacing makes the code easier to follow at a skim, and reduces
 unnecessary line noise. Coupled with the commenting scheme specified above,
 proper spacing allows readers to quickly scan code, extracting semantics quickly.
@@ -353,8 +353,8 @@ of `protoc`.
 
 The following commit hashes of related projects are also required in order to
 generate identical compiled protos and related files:
-   * grpc-ecosystem/grpc-gateway: f2862b476edcef83412c7af8687c9cd8e4097c0f
-   * golang/protobuf: ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
+   * grpc-ecosystem/grpc-gateway: `f2862b476edcef83412c7af8687c9cd8e4097c0f`
+   * golang/protobuf: `ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e`
 
 Additionally, in order to maintain a uniform display of the RPC responses
 rendered by `lncli`, all added or modified `protof` definitions, _must_ attach
@@ -377,7 +377,7 @@ itself, and uses a `snake_case` style of name formatting. All added or modified
 ### 5. Code Approval Process
 
 This section describes the code approval process that is used for code
-contributions.  This is how to get your changes into lnd.
+contributions.  This is how to get your changes into `lnd`.
 
 <a name="CodeReview" />
 

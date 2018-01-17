@@ -2,8 +2,8 @@ package htlcswitch
 
 import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
+	"github.com/roasbeef/btcd/wire"
 	"github.com/viacoin/lnd/channeldb"
-	"github.com/viacoin/lnd/lnwallet"
 	"github.com/viacoin/lnd/lnwire"
 )
 
@@ -12,7 +12,7 @@ import (
 type InvoiceDatabase interface {
 	// LookupInvoice attempts to look up an invoice according to it's 32
 	// byte payment hash.
-	LookupInvoice(chainhash.Hash) (*channeldb.Invoice, error)
+	LookupInvoice(chainhash.Hash) (channeldb.Invoice, error)
 
 	// SettleInvoice attempts to mark an invoice corresponding to the
 	// passed payment hash as fully settled.
@@ -38,14 +38,22 @@ type InvoiceDatabase interface {
 //       |
 //
 type ChannelLink interface {
+	// TODO(roasbeef): modify interface to embed mail boxes?
+
 	// HandleSwitchPacket handles the switch packets. This packets might be
 	// forwarded to us from another channel link in case the htlc update
 	// came from another peer or if the update was created by user
 	// initially.
+	//
+	// NOTE: This function MUST be non-blocking (or block as little as
+	// possible).
 	HandleSwitchPacket(*htlcPacket)
 
 	// HandleChannelUpdate handles the htlc requests as settle/add/fail
 	// which sent to us from remote peer we have a channel with.
+	//
+	// NOTE: This function MUST be non-blocking (or block as little as
+	// possible).
 	HandleChannelUpdate(lnwire.Message)
 
 	// ChanID returns the channel ID for the channel link. The channel ID
@@ -77,6 +85,13 @@ type ChannelLink interface {
 	// the channel link opened.
 	Peer() Peer
 
+	// EligibleToForward returns a bool indicating if the channel is able
+	// to actively accept requests to forward HTLC's. A channel may be
+	// active, but not able to forward HTLC's if it hasn't yet finalized
+	// the pre-channel operation protocol with the remote peer. The switch
+	// will use this function in forwarding decisions accordingly.
+	EligibleToForward() bool
+
 	// Start/Stop are used to initiate the start/stop of the channel link
 	// functioning.
 	Start() error
@@ -89,9 +104,9 @@ type Peer interface {
 	// SendMessage sends message to remote peer.
 	SendMessage(lnwire.Message) error
 
-	// WipeChannel removes the passed channel from all indexes associated
-	// with the peer.
-	WipeChannel(*lnwallet.LightningChannel) error
+	// WipeChannel removes the channel uniquely identified by its channel
+	// point from all indexes associated with the peer.
+	WipeChannel(*wire.OutPoint) error
 
 	// PubKey returns the serialize public key of the source peer.
 	PubKey() [33]byte

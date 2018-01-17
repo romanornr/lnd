@@ -18,72 +18,126 @@ import (
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
 	"github.com/roasbeef/btcd/txscript"
 	"github.com/roasbeef/btcd/wire"
+	"github.com/roasbeef/btcutil"
 	"github.com/viacoin/lnd/chainntnfs"
 	"github.com/viacoin/lnd/channeldb"
 	"github.com/viacoin/lnd/lnwallet"
 	"github.com/viacoin/lnd/lnwire"
 )
 
-type mockServer struct {
-	sync.Mutex
+type mockFeeEstimator struct {
+	byteFeeIn   chan btcutil.Amount
+	weightFeeIn chan btcutil.Amount
 
+	quit chan struct{}
+}
+
+func (m *mockFeeEstimator) EstimateFeePerByte(numBlocks uint32) (btcutil.Amount, error) {
+	select {
+	case feeRate := <-m.byteFeeIn:
+		return feeRate, nil
+	case <-m.quit:
+		return 0, fmt.Errorf("exiting")
+	}
+}
+
+func (m *mockFeeEstimator) EstimateFeePerWeight(numBlocks uint32) (btcutil.Amount, error) {
+	select {
+	case feeRate := <-m.weightFeeIn:
+		return feeRate, nil
+	case <-m.quit:
+		return 0, fmt.Errorf("exiting")
+	}
+}
+
+func (m *mockFeeEstimator) Start() error {
+	return nil
+}
+func (m *mockFeeEstimator) Stop() error {
+	close(m.quit)
+	return nil
+}
+
+var _ lnwallet.FeeEstimator = (*mockFeeEstimator)(nil)
+
+type mockServer struct {
 	started  int32
 	shutdown int32
 	wg       sync.WaitGroup
-	quit     chan bool
+	quit     chan struct{}
 
-	t        *testing.T
+	t testing.TB
+
 	name     string
 	messages chan lnwire.Message
+
+	errChan chan error
 
 	id         [33]byte
 	htlcSwitch *Switch
 
-	registry    *mockInvoiceRegistry
-	recordFuncs []func(lnwire.Message)
+	registry         *mockInvoiceRegistry
+	interceptorFuncs []messageInterceptor
 }
 
 var _ Peer = (*mockServer)(nil)
 
-func newMockServer(t *testing.T, name string) *mockServer {
+func newMockServer(t testing.TB, name string) *mockServer {
 	var id [33]byte
 	h := sha256.Sum256([]byte(name))
 	copy(id[:], h[:])
 
 	return &mockServer{
-		t:           t,
-		id:          id,
-		name:        name,
-		messages:    make(chan lnwire.Message, 3000),
-		quit:        make(chan bool),
-		registry:    newMockRegistry(),
-		htlcSwitch:  New(Config{}),
-		recordFuncs: make([]func(lnwire.Message), 0),
+		t:                t,
+		id:               id,
+		name:             name,
+		messages:         make(chan lnwire.Message, 3000),
+		quit:             make(chan struct{}),
+		registry:         newMockRegistry(),
+		htlcSwitch:       New(Config{}),
+		interceptorFuncs: make([]messageInterceptor, 0),
 	}
 }
 
 func (s *mockServer) Start() error {
 	if !atomic.CompareAndSwapInt32(&s.started, 0, 1) {
-		return nil
+		return errors.New("mock server already started")
 	}
 
-	s.htlcSwitch.Start()
+	if err := s.htlcSwitch.Start(); err != nil {
+		return err
+	}
 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 
+		defer func() {
+			s.htlcSwitch.Stop()
+		}()
+
 		for {
 			select {
 			case msg := <-s.messages:
-				for _, f := range s.recordFuncs {
-					f(msg)
+				var shouldSkip bool
+
+				for _, interceptor := range s.interceptorFuncs {
+					skip, err := interceptor(msg)
+					if err != nil {
+						s.t.Fatalf("%v: error in the "+
+							"interceptor: %v", s.name, err)
+						return
+					}
+					shouldSkip = shouldSkip || skip
+				}
+
+				if shouldSkip {
+					continue
 				}
 
 				if err := s.readHandler(msg); err != nil {
-					s.Lock()
-					defer s.Unlock()
-					s.t.Fatalf("%v server error: %v", s.name, err)
+					s.t.Fatal(err)
+					return
 				}
 			case <-s.quit:
 				return
@@ -153,11 +207,11 @@ var _ HopIterator = (*mockHopIterator)(nil)
 // encodes the failure and do not makes any onion obfuscation.
 type mockObfuscator struct{}
 
-func newMockObfuscator() Obfuscator {
+func newMockObfuscator() ErrorEncrypter {
 	return &mockObfuscator{}
 }
 
-func (o *mockObfuscator) InitialObfuscate(failure lnwire.FailureMessage) (
+func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
 	lnwire.OpaqueReason, error) {
 
 	var b bytes.Buffer
@@ -167,7 +221,7 @@ func (o *mockObfuscator) InitialObfuscate(failure lnwire.FailureMessage) (
 	return b.Bytes(), nil
 }
 
-func (o *mockObfuscator) BackwardObfuscate(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+func (o *mockObfuscator) IntermediateEncrypt(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
 	return reason
 
 }
@@ -176,21 +230,24 @@ func (o *mockObfuscator) BackwardObfuscate(reason lnwire.OpaqueReason) lnwire.Op
 // only decodes the failure do not makes any onion obfuscation.
 type mockDeobfuscator struct{}
 
-func newMockDeobfuscator() Deobfuscator {
+func newMockDeobfuscator() ErrorDecrypter {
 	return &mockDeobfuscator{}
 }
 
-func (o *mockDeobfuscator) Deobfuscate(reason lnwire.OpaqueReason) (lnwire.FailureMessage,
-	error) {
+func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (*ForwardingError, error) {
+
 	r := bytes.NewReader(reason)
 	failure, err := lnwire.DecodeFailure(r, 0)
 	if err != nil {
 		return nil, err
 	}
-	return failure, nil
+
+	return &ForwardingError{
+		FailureMessage: failure,
+	}, nil
 }
 
-var _ Deobfuscator = (*mockDeobfuscator)(nil)
+var _ ErrorDecrypter = (*mockDeobfuscator)(nil)
 
 // mockIteratorDecoder test version of hop iterator decoder which decodes the
 // encoded array of hops.
@@ -242,19 +299,21 @@ func (f *ForwardingInfo) decode(r io.Reader) error {
 }
 
 // messageInterceptor is function that handles the incoming peer messages and
-// may decide should we handle it or not.
-type messageInterceptor func(m lnwire.Message)
+// may decide should the peer skip the message or not.
+type messageInterceptor func(m lnwire.Message) (bool, error)
 
 // Record is used to set the function which will be triggered when new
 // lnwire message was received.
-func (s *mockServer) record(f messageInterceptor) {
-	s.recordFuncs = append(s.recordFuncs, f)
+func (s *mockServer) intersect(f messageInterceptor) {
+	s.interceptorFuncs = append(s.interceptorFuncs, f)
 }
 
 func (s *mockServer) SendMessage(message lnwire.Message) error {
+
 	select {
 	case s.messages <- message:
 	case <-s.quit:
+		return errors.New("server is stopped")
 	}
 
 	return nil
@@ -279,8 +338,12 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 	case *lnwire.FundingLocked:
 		// Ignore
 		return nil
+	case *lnwire.ChannelReestablish:
+		targetChan = msg.ChanID
+	case *lnwire.UpdateFee:
+		targetChan = msg.ChanID
 	default:
-		return errors.New("unknown message type")
+		return fmt.Errorf("unknown message type: %T", msg)
 	}
 
 	// Dispatch the commitment update message to the proper
@@ -292,18 +355,7 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 
 	// Create goroutine for this, in order to be able to properly stop
 	// the server when handler stacked (server unavailable)
-	done := make(chan struct{})
-	go func() {
-		defer func() {
-			done <- struct{}{}
-		}()
-
-		link.HandleChannelUpdate(message)
-	}()
-	select {
-	case <-done:
-	case <-s.quit:
-	}
+	link.HandleChannelUpdate(message)
 
 	return nil
 }
@@ -315,23 +367,22 @@ func (s *mockServer) PubKey() [33]byte {
 func (s *mockServer) Disconnect(reason error) {
 	fmt.Printf("server %v disconnected due to %v\n", s.name, reason)
 
-	s.Stop()
-	s.t.Fatalf("server %v was disconnected", s.name)
+	s.t.Fatalf("server %v was disconnected: %v", s.name, reason)
 }
 
-func (s *mockServer) WipeChannel(*lnwallet.LightningChannel) error {
+func (s *mockServer) WipeChannel(*wire.OutPoint) error {
 	return nil
 }
 
-func (s *mockServer) Stop() {
+func (s *mockServer) Stop() error {
 	if !atomic.CompareAndSwapInt32(&s.shutdown, 0, 1) {
-		return
+		return nil
 	}
-
-	s.htlcSwitch.Stop()
 
 	close(s.quit)
 	s.wg.Wait()
+
+	return nil
 }
 
 func (s *mockServer) String() string {
@@ -339,6 +390,8 @@ func (s *mockServer) String() string {
 }
 
 type mockChannelLink struct {
+	htlcSwitch *Switch
+
 	shortChanID lnwire.ShortChannelID
 
 	chanID lnwire.ChannelID
@@ -346,20 +399,40 @@ type mockChannelLink struct {
 	peer Peer
 
 	packets chan *htlcPacket
+
+	eligible bool
+
+	htlcID uint64
 }
 
-func newMockChannelLink(chanID lnwire.ChannelID, shortChanID lnwire.ShortChannelID,
-	peer Peer) *mockChannelLink {
+func newMockChannelLink(htlcSwitch *Switch, chanID lnwire.ChannelID,
+	shortChanID lnwire.ShortChannelID, peer Peer, eligible bool,
+) *mockChannelLink {
 
 	return &mockChannelLink{
+		htlcSwitch:  htlcSwitch,
 		chanID:      chanID,
 		shortChanID: shortChanID,
 		packets:     make(chan *htlcPacket, 1),
 		peer:        peer,
+		eligible:    eligible,
 	}
 }
 
 func (f *mockChannelLink) HandleSwitchPacket(packet *htlcPacket) {
+	switch htlc := packet.htlc.(type) {
+	case *lnwire.UpdateAddHTLC:
+		f.htlcSwitch.addCircuit(&PaymentCircuit{
+			PaymentHash:    htlc.PaymentHash,
+			IncomingChanID: packet.incomingChanID,
+			IncomingHTLCID: packet.incomingHTLCID,
+			OutgoingChanID: f.shortChanID,
+			OutgoingHTLCID: f.htlcID,
+			ErrorEncrypter: packet.obfuscator,
+		})
+		f.htlcID++
+	}
+
 	f.packets <- packet
 }
 
@@ -379,52 +452,55 @@ func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi     { return 99999999 
 func (f *mockChannelLink) Peer() Peer                         { return f.peer }
 func (f *mockChannelLink) Start() error                       { return nil }
 func (f *mockChannelLink) Stop()                              {}
+func (f *mockChannelLink) EligibleToForward() bool            { return f.eligible }
 
 var _ ChannelLink = (*mockChannelLink)(nil)
 
 type mockInvoiceRegistry struct {
 	sync.Mutex
-	invoices map[chainhash.Hash]*channeldb.Invoice
+	invoices map[chainhash.Hash]channeldb.Invoice
 }
 
 func newMockRegistry() *mockInvoiceRegistry {
 	return &mockInvoiceRegistry{
-		invoices: make(map[chainhash.Hash]*channeldb.Invoice),
+		invoices: make(map[chainhash.Hash]channeldb.Invoice),
 	}
 }
 
-func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (*channeldb.Invoice, error) {
+func (i *mockInvoiceRegistry) LookupInvoice(rHash chainhash.Hash) (channeldb.Invoice, error) {
 	i.Lock()
 	defer i.Unlock()
 
 	invoice, ok := i.invoices[rHash]
 	if !ok {
-		return nil, errors.New("can't find mock invoice")
+		return channeldb.Invoice{}, fmt.Errorf("can't find mock invoice: %x", rHash[:])
 	}
 
 	return invoice, nil
 }
 
 func (i *mockInvoiceRegistry) SettleInvoice(rhash chainhash.Hash) error {
+	i.Lock()
+	defer i.Unlock()
 
-	invoice, err := i.LookupInvoice(rhash)
-	if err != nil {
-		return err
+	invoice, ok := i.invoices[rhash]
+	if !ok {
+		return fmt.Errorf("can't find mock invoice: %x", rhash[:])
 	}
 
-	i.Lock()
 	invoice.Terms.Settled = true
-	i.Unlock()
+	i.invoices[rhash] = invoice
 
 	return nil
 }
 
-func (i *mockInvoiceRegistry) AddInvoice(invoice *channeldb.Invoice) error {
+func (i *mockInvoiceRegistry) AddInvoice(invoice channeldb.Invoice) error {
 	i.Lock()
 	defer i.Unlock()
 
 	rhash := fastsha256.Sum256(invoice.Terms.PaymentPreimage[:])
 	i.invoices[chainhash.Hash(rhash)] = invoice
+
 	return nil
 }
 
@@ -453,7 +529,7 @@ func (m *mockSigner) SignOutputRaw(tx *wire.MsgTx, signDesc *lnwallet.SignDescri
 	}
 
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, amt, witnessScript, txscript.SigHashAll,
+		signDesc.InputIndex, amt, witnessScript, signDesc.HashType,
 		privKey)
 	if err != nil {
 		return nil, err
@@ -479,7 +555,7 @@ func (m *mockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *lnwallet.SignD
 
 	witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
 		signDesc.InputIndex, signDesc.Output.Value, signDesc.Output.PkScript,
-		txscript.SigHashAll, privKey, true)
+		signDesc.HashType, privKey, true)
 	if err != nil {
 		return nil, err
 	}

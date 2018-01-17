@@ -83,6 +83,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		RevocationBasePoint: aliceKeyPub,
 		PaymentBasePoint:    aliceKeyPub,
 		DelayBasePoint:      aliceKeyPub,
+		HtlcBasePoint:       aliceKeyPub,
 	}
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
@@ -97,6 +98,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		RevocationBasePoint: bobKeyPub,
 		PaymentBasePoint:    bobKeyPub,
 		DelayBasePoint:      bobKeyPub,
+		HtlcBasePoint:       bobKeyPub,
 	}
 
 	bobRoot := lnwallet.DeriveRevocationRoot(bobKeyPriv, testHdSeed, aliceKeyPub)
@@ -117,7 +119,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(channelBal,
 		channelBal, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
-		fundingTxIn)
+		*fundingTxIn)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -134,28 +136,62 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		return nil, nil, nil, nil, err
 	}
 
-	var obsfucator [lnwallet.StateHintSize]byte
-	copy(obsfucator[:], aliceFirstRevoke[:])
-
 	estimator := &lnwallet.StaticFeeEstimator{FeeRate: 50}
-	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
+	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	feePerKw := feePerWeight * 1000
+
+	// TODO(roasbeef): need to factor in commit fee?
+	aliceCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
+		FeePerKw:      feePerKw,
+		CommitFee:     8688,
+		CommitTx:      aliceCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
+	bobCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(channelBal),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(channelBal),
+		FeePerKw:      feePerKw,
+		CommitFee:     8688,
+		CommitTx:      bobCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
+
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
 		RemoteChanCfg:           bobCfg,
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
-		FeePerKw:                feePerKw,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(channelBal),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(channelBal),
-		CommitTx:                *aliceCommitTx,
-		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         aliceCommit,
+		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice,
+	}
+	bobChannelState := &channeldb.OpenChannel{
+		LocalChanCfg:            bobCfg,
+		RemoteChanCfg:           aliceCfg,
+		IdentityPub:             bobKeyPub,
+		FundingOutpoint:         *prevOut,
+		ChanType:                channeldb.SingleFunder,
+		IsInitiator:             false,
+		Capacity:                channelCapacity,
+		RemoteCurrentRevocation: aliceCommitPoint,
+		RevocationProducer:      bobPreimageProducer,
+		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         bobCommit,
+		RemoteCommitment:        bobCommit,
+		Db:                      dbBob,
 	}
 
 	addr := &net.TCPAddr{
@@ -165,25 +201,6 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	if err := aliceChannelState.SyncPending(addr, 0); err != nil {
 		return nil, nil, nil, nil, err
-	}
-
-	bobChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            bobCfg,
-		RemoteChanCfg:           aliceCfg,
-		IdentityPub:             bobKeyPub,
-		FeePerKw:                feePerKw,
-		FundingOutpoint:         *prevOut,
-		ChanType:                channeldb.SingleFunder,
-		IsInitiator:             false,
-		Capacity:                channelCapacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(channelBal),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(channelBal),
-		CommitTx:                *bobCommitTx,
-		CommitSig:               bytes.Repeat([]byte{1}, 71),
-		RemoteCurrentRevocation: aliceCommitPoint,
-		RevocationProducer:      bobPreimageProducer,
-		RevocationStore:         shachain.NewRevocationStore(),
-		Db:                      dbBob,
 	}
 
 	addr = &net.TCPAddr{
@@ -248,12 +265,9 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		activeChannels: make(map[lnwire.ChannelID]*lnwallet.LightningChannel),
 		newChannels:    make(chan *newChannelMsg, 1),
 
-		localCloseChanReqs:    make(chan *htlcswitch.ChanClose),
-		shutdownChanReqs:      make(chan *lnwire.Shutdown),
-		closingSignedChanReqs: make(chan *lnwire.ClosingSigned),
-
-		localSharedFeatures:  nil,
-		globalSharedFeatures: nil,
+		activeChanCloses:   make(map[lnwire.ChannelID]*channelCloser),
+		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
+		chanCloseMsgs:      make(chan *closeMsg),
 
 		queueQuit: make(chan struct{}),
 		quit:      make(chan struct{}),

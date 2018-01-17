@@ -71,9 +71,13 @@ func TestCommitmentSpendValidation(t *testing.T) {
 	// This is Alice's commitment transaction, so she must wait a CSV delay
 	// of 5 blocks before sweeping the output, while bob can spend
 	// immediately with either the revocation key, or his regular key.
-	commitmentTx, err := CreateCommitTx(fakeFundingTxIn, aliceDelayKey,
-		bobPayKey, revokePubKey, csvTimeout, channelBalance,
-		channelBalance, DefaultDustLimit())
+	keyRing := &commitmentKeyRing{
+		delayKey:      aliceDelayKey,
+		revocationKey: revokePubKey,
+		noDelayKey:    bobPayKey,
+	}
+	commitmentTx, err := CreateCommitTx(*fakeFundingTxIn, keyRing, csvTimeout,
+		channelBalance, channelBalance, DefaultDustLimit())
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)
 	}
@@ -1043,8 +1047,8 @@ func TestCommitTxStateHint(t *testing.T) {
 		},
 	}
 
-	var obsfucator [StateHintSize]byte
-	copy(obsfucator[:], testHdSeed[:StateHintSize])
+	var obfuscator [StateHintSize]byte
+	copy(obfuscator[:], testHdSeed[:StateHintSize])
 	timeYesterday := uint32(time.Now().Unix() - 24*60*60)
 
 	for _, test := range stateHintTests {
@@ -1058,7 +1062,7 @@ func TestCommitTxStateHint(t *testing.T) {
 		for i := test.from; i <= test.to; i++ {
 			stateNum := uint64(i)
 
-			err := SetStateNumHint(commitTx, stateNum, obsfucator)
+			err := SetStateNumHint(commitTx, stateNum, obfuscator)
 			if err != nil && !test.shouldFail {
 				t.Fatalf("unable to set state num %v: %v", i, err)
 			} else if err == nil && test.shouldFail {
@@ -1084,7 +1088,7 @@ func TestCommitTxStateHint(t *testing.T) {
 				}
 			}
 
-			extractedStateNum := GetStateNumHint(commitTx, obsfucator)
+			extractedStateNum := GetStateNumHint(commitTx, obfuscator)
 			if extractedStateNum != stateNum && !test.shouldFail {
 				t.Fatalf("state number mismatched, expected %v, got %v",
 					stateNum, extractedStateNum)

@@ -15,7 +15,13 @@ import (
 // FailureMessage represents the onion failure object identified by its unique
 // failure code.
 type FailureMessage interface {
+	// Code returns a failure code describing the exact nature of the
+	// error.
 	Code() FailCode
+
+	// Error returns a human readable string describing the error. With
+	// this method, the FailureMessage interface meets the built-in error
+	// interface.
 	Error() string
 }
 
@@ -526,6 +532,7 @@ func (f *FailTemporaryChannelFailure) Decode(r io.Reader, pver uint32) error {
 		f.Update = &ChannelUpdate{}
 		return f.Update.Decode(r, pver)
 	}
+
 	return nil
 }
 
@@ -1025,7 +1032,8 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	case Serializable:
 		if err := f.Decode(dataReader, pver); err != nil {
 			return nil, fmt.Errorf("unable to decode error "+
-				"update: %v", err)
+				"update (type=%T, len_bytes=%v, bytes=%x): %v",
+				failure, failureLength, failureData[:], err)
 		}
 	}
 

@@ -3,6 +3,7 @@ package lnwire
 import (
 	"bytes"
 	"encoding/hex"
+	"image/color"
 	"math"
 	"math/big"
 	"math/rand"
@@ -51,16 +52,14 @@ func randPubKey() (*btcec.PublicKey, error) {
 	return priv.PubKey(), nil
 }
 
-func randFeatureVector(r *rand.Rand) *FeatureVector {
-	numFeatures := r.Int31n(10000)
-	features := make([]Feature, numFeatures)
-	for i := int32(0); i < numFeatures; i++ {
-		features[i] = Feature{
-			Flag: featureFlag(rand.Int31n(2) + 1),
+func randRawFeatureVector(r *rand.Rand) *RawFeatureVector {
+	featureVec := NewRawFeatureVector()
+	for i := 0; i < 10000; i++ {
+		if r.Int31n(2) == 0 {
+			featureVec.Set(FeatureBit(i))
 		}
 	}
-
-	return NewFeatureVector(features)
+	return featureVec
 }
 
 func TestMaxOutPointIndex(t *testing.T) {
@@ -139,11 +138,9 @@ func TestLightningWireProtocol(t *testing.T) {
 	customTypeGen := map[MessageType]func([]reflect.Value, *rand.Rand){
 		MsgInit: func(v []reflect.Value, r *rand.Rand) {
 			req := NewInitMessage(
-				randFeatureVector(r),
-				randFeatureVector(r),
+				randRawFeatureVector(r),
+				randRawFeatureVector(r),
 			)
-			req.GlobalFeatures.featuresMap = nil
-			req.LocalFeatures.featuresMap = nil
 
 			v[0] = reflect.ValueOf(*req)
 		},
@@ -158,7 +155,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				FeePerKiloWeight: uint32(r.Int63()),
 				CsvDelay:         uint16(r.Int31()),
 				MaxAcceptedHTLCs: uint16(r.Int31()),
-				ChannelFlags:     byte(r.Int31()),
+				ChannelFlags:     FundingFlag(uint8(r.Int31())),
 			}
 
 			if _, err := r.Read(req.ChainHash[:]); err != nil {
@@ -188,6 +185,11 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 			req.DelayedPaymentPoint, err = randPubKey()
+			if err != nil {
+				t.Fatalf("unable to generate key: %v", err)
+				return
+			}
+			req.HtlcPoint, err = randPubKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
@@ -233,6 +235,11 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 			req.DelayedPaymentPoint, err = randPubKey()
+			if err != nil {
+				t.Fatalf("unable to generate key: %v", err)
+				return
+			}
+			req.HtlcPoint, err = randPubKey()
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
@@ -297,7 +304,7 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 		MsgClosingSigned: func(v []reflect.Value, r *rand.Rand) {
 			req := ClosingSigned{
-				FeeSatoshis: uint64(r.Int63()),
+				FeeSatoshis: btcutil.Amount(r.Int63()),
 				Signature:   testSig,
 			}
 
@@ -351,9 +358,8 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgChannelAnnouncement: func(v []reflect.Value, r *rand.Rand) {
 			req := ChannelAnnouncement{
 				ShortChannelID: NewShortChanIDFromInt(uint64(r.Int63())),
-				Features:       randFeatureVector(r),
+				Features:       randRawFeatureVector(r),
 			}
-			req.Features.featuresMap = nil
 			req.NodeSig1 = testSig
 			req.NodeSig2 = testSig
 			req.BitcoinSig1 = testSig
@@ -396,18 +402,17 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			req := NodeAnnouncement{
 				Signature: testSig,
-				Features:  randFeatureVector(r),
+				Features:  randRawFeatureVector(r),
 				Timestamp: uint32(r.Int31()),
 				Alias:     a,
-				RGBColor: RGB{
-					red:   uint8(r.Int31()),
-					green: uint8(r.Int31()),
-					blue:  uint8(r.Int31()),
+				RGBColor: color.RGBA{
+					R: uint8(r.Int31()),
+					G: uint8(r.Int31()),
+					B: uint8(r.Int31()),
 				},
 				// TODO(roasbeef): proper gen rand addrs
 				Addresses: testAddrs,
 			}
-			req.Features.featuresMap = nil
 
 			var err error
 			req.NodeID, err = randPubKey()
@@ -423,7 +428,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				Signature:       testSig,
 				ShortChannelID:  NewShortChanIDFromInt(uint64(r.Int63())),
 				Timestamp:       uint32(r.Int31()),
-				Flags:           uint16(r.Int31()),
+				Flags:           ChanUpdateFlag(r.Int31()),
 				TimeLockDelta:   uint16(r.Int31()),
 				HtlcMinimumMsat: MilliSatoshi(r.Int63()),
 				BaseFee:         uint32(r.Int31()),
@@ -445,6 +450,31 @@ func TestLightningWireProtocol(t *testing.T) {
 			if _, err := r.Read(req.ChannelID[:]); err != nil {
 				t.Fatalf("unable to generate chan id: %v", err)
 				return
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
+		MsgChannelReestablish: func(v []reflect.Value, r *rand.Rand) {
+			req := ChannelReestablish{
+				NextLocalCommitHeight:  uint64(r.Int63()),
+				RemoteCommitTailHeight: uint64(r.Int63()),
+			}
+
+			// With a 50/50 probability, we'll include the
+			// additional fields so we can test our ability to
+			// properly parse, and write out the optional fields.
+			if r.Int()%2 == 0 {
+				_, err := r.Read(req.LastRemoteCommitSecret[:])
+				if err != nil {
+					t.Fatalf("unable to read commit secret: %v", err)
+					return
+				}
+
+				req.LocalUnrevokedCommitPoint, err = randPubKey()
+				if err != nil {
+					t.Fatalf("unable to generate key: %v", err)
+					return
+				}
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -566,6 +596,12 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			msgType: MsgUpdateFailMalformedHTLC,
 			scenario: func(m UpdateFailMalformedHTLC) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgChannelReestablish,
+			scenario: func(m ChannelReestablish) bool {
 				return mainScenario(&m)
 			},
 		},

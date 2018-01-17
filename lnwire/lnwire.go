@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"image/color"
 	"io"
 	"math"
 
@@ -16,7 +17,7 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
-// MaxSliceLength is the maximum allowed lenth for any opaque byte slices in
+// MaxSliceLength is the maximum allowed length for any opaque byte slices in
 // the wire protocol.
 const MaxSliceLength = 65535
 
@@ -86,9 +87,21 @@ func writeElement(w io.Writer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
+	case FundingFlag:
+		var b [1]byte
+		b[0] = uint8(e)
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
 	case uint16:
 		var b [2]byte
 		binary.BigEndian.PutUint16(b[:], e)
+		if _, err := w.Write(b[:]); err != nil {
+			return err
+		}
+	case ChanUpdateFlag:
+		var b [2]byte
+		binary.BigEndian.PutUint16(b[:], uint16(e))
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
@@ -215,7 +228,7 @@ func writeElement(w io.Writer, element interface{}) error {
 		if err := wire.WriteVarBytes(w, 0, e); err != nil {
 			return err
 		}
-	case *FeatureVector:
+	case *RawFeatureVector:
 		if e == nil {
 			return fmt.Errorf("cannot write nil feature vector")
 		}
@@ -343,8 +356,8 @@ func writeElement(w io.Writer, element interface{}) error {
 				return err
 			}
 		}
-	case RGB:
-		if err := writeElements(w, e.red, e.green, e.blue); err != nil {
+	case color.RGBA:
+		if err := writeElements(w, e.R, e.G, e.B); err != nil {
 			return err
 		}
 
@@ -388,12 +401,24 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = b[0]
+	case *FundingFlag:
+		var b [1]uint8
+		if _, err := r.Read(b[:]); err != nil {
+			return err
+		}
+		*e = FundingFlag(b[0])
 	case *uint16:
 		var b [2]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
 			return err
 		}
 		*e = binary.BigEndian.Uint16(b[:])
+	case *ChanUpdateFlag:
+		var b [2]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+		*e = ChanUpdateFlag(binary.BigEndian.Uint16(b[:]))
 	case *ErrorCode:
 		var b [2]byte
 		if _, err := io.ReadFull(r, b[:]); err != nil {
@@ -435,8 +460,9 @@ func readElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = pubKey
-	case **FeatureVector:
-		f, err := NewFeatureVectorFromReader(r)
+	case **RawFeatureVector:
+		f := NewRawFeatureVector()
+		err = f.Decode(r)
 		if err != nil {
 			return err
 		}
@@ -664,11 +690,11 @@ func readElement(r io.Reader, element interface{}) error {
 		}
 
 		*e = addresses
-	case *RGB:
+	case *color.RGBA:
 		err := readElements(r,
-			&e.red,
-			&e.green,
-			&e.blue,
+			&e.R,
+			&e.G,
+			&e.B,
 		)
 		if err != nil {
 			return err

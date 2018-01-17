@@ -34,12 +34,10 @@ Basic of Lightning Technologies. The specifications are currently being drafted
 by several groups of implementers based around the world including the
 developers of `lnd`. The set of specification documents as well as our
 implementation of the specification are still a work-in-progress. With that
-said, `lnd` the current status of `lnd`'s BOLT compliance is:
+said, the current status of `lnd`'s BOLT compliance is:
 
   - [X] BOLT 1: Base Protocol
-  - [ ] BOLT 2: Peer Protocol for Channel Management
-     * `lnd` has not yet integrated full channel re-transmission upon
-        reconnection
+  - [X] BOLT 2: Peer Protocol for Channel Management
   - [X] BOLT 3: Bitcoin Transaction and Script Formats
   - [X] BOLT 4: Onion Routing Protocol
   - [X] BOLT 5: Recommendations for On-chain Transaction Handling

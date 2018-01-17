@@ -21,8 +21,8 @@ imports:
   version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
 - name: github.com/btcsuite/fastsha256
   version: 637e656429416087660c84436a2a035d69d54e2e
-- name: github.com/btcsuite/go-flags
-  version: 6c288d648c1cc1befcb90cb5511dcacf64ae8e61
+- name: github.com/jessevdk/go-flags
+  version: f88afde2fa19a30cf50ba4b05b3d13bc6bae3079
 - name: github.com/btcsuite/go-socks
   version: 4720035b7bfd2a9bb130b1c184f8bbe41b6f0d0f
   subpackages:
@@ -40,7 +40,11 @@ imports:
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/davecgh/go-spew
+<<<<<<< HEAD
   version: adab96458c51a58dc1783b3335dcce5461522e75
+=======
+  version: ecdeabc65495df2dec95d7c4a4c3e021903035e5
+>>>>>>> upstream/master
   subpackages:
   - spew
 - name: github.com/go-errors/errors
@@ -70,20 +74,26 @@ imports:
 - name: github.com/kkdai/bstream
   version: f391b8402d23024e7c0f624b31267a89998fca95
 - name: github.com/lightninglabs/neutrino
-  version: c11a86339f7e53170b0ef38fcf495e172d792e02
+  version: 5560001600544391c68e02bd1cc7cdbd25318030
   subpackages:
   - filterdb
   - headerfs
 - name: github.com/lightningnetwork/lightning-onion
-  version: 1d52214c016402c9cb78d479895afb370597b488
+  version: 18bf6612a0653a21daf1a08b4a59e54670a524a1
 - name: github.com/ltcsuite/ltcd
   version: 5f654d5faab99ee2b3488fabba98e5f7a5257ee3
   subpackages:
   - chaincfg
   - chaincfg/chainhash
   - wire
+- name: github.com/miekg/dns
+  version: 946bd9fbed05568b0f3cd188353d8aa28f38b688
+  subpackages:
+  - internal/socket
+- name: github.com/lightninglabs/gozmq
+  version: b0bbb30a99d00b25c3304994d20aac68607b75c0
 - name: github.com/roasbeef/btcd
-  version: 4b411f0e78f1faa96ae650d886170d018c1835bf
+  version: 9978b939c33973be19b932fa7b936079bb7ba38d
   subpackages:
   - addrmgr
   - blockchain
@@ -101,7 +111,7 @@ imports:
 - name: github.com/roasbeef/btcrpcclient
   version: d0f4db8b4dad0ca3d569b804f21247c3dd96acbb
 - name: github.com/roasbeef/btcutil
-  version: 1584022350b4400b511beab6a013f0189adeef40
+  version: c3ff179366044979fb9856c2feb79bd4c2184c7a
   subpackages:
   - base58
   - bech32
@@ -112,7 +122,7 @@ imports:
   - hdkeychain
   - txsort
 - name: github.com/roasbeef/btcwallet
-  version: 30ed6c8e49c45be04e9a9af0518245f27f2f6686
+  version: 6c1491e092f39d6ed4e9103b9dc8322d04ca98bb
   subpackages:
   - chain
   - internal/helpers
@@ -142,7 +152,7 @@ imports:
   - chaincfg/chainhash
   - wire
 - name: golang.org/x/crypto
-  version: 81e90905daefcd6fd217b62423c0908922eadb30
+  version: 9419663f5a44be8b34ca85f08abc5fe1be11f8a3
   subpackages:
   - chacha20poly1305
   - chacha20poly1305/internal/chacha20
@@ -156,6 +166,7 @@ imports:
   - salsa20
   - salsa20/salsa
   - scrypt
+  - ssh/terminal
 - name: golang.org/x/net
   version: 1087133bc4af3073e18add999345c6ae75918503
   subpackages:
@@ -170,6 +181,7 @@ imports:
   version: 396c9fc8fb0ce27fc7a1ff136dc5af797bba258a
   subpackages:
   - unix
+  - windows
 - name: golang.org/x/text
   version: 3bd178b88a8180be2df394a1fbb81313916f0e7b
   subpackages:
@@ -178,7 +190,11 @@ imports:
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/genproto
+<<<<<<< HEAD
   version: f676e0f3ac6395ff1a529ae59a6670878a8371a6
+=======
+  version: ee236bd376b077c7a89f260c026c4735b195e459
+>>>>>>> upstream/master
   subpackages:
   - googleapis/api/annotations
   - googleapis/rpc/status

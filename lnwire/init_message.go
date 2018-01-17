@@ -9,15 +9,15 @@ import "io"
 type Init struct {
 	// GlobalFeatures is feature vector which affects HTLCs and thus are
 	// also advertised to other nodes.
-	GlobalFeatures *FeatureVector
+	GlobalFeatures *RawFeatureVector
 
 	// LocalFeatures is feature vector which only affect the protocol
 	// between two nodes.
-	LocalFeatures *FeatureVector
+	LocalFeatures *RawFeatureVector
 }
 
 // NewInitMessage creates new instance of init message object.
-func NewInitMessage(gf, lf *FeatureVector) *Init {
+func NewInitMessage(gf *RawFeatureVector, lf *RawFeatureVector) *Init {
 	return &Init{
 		GlobalFeatures: gf,
 		LocalFeatures:  lf,
@@ -34,8 +34,8 @@ var _ Message = (*Init)(nil)
 // This is part of the lnwire.Message interface.
 func (msg *Init) Decode(r io.Reader, pver uint32) error {
 	return readElements(r,
-		&msg.LocalFeatures,
 		&msg.GlobalFeatures,
+		&msg.LocalFeatures,
 	)
 }
 
@@ -45,8 +45,8 @@ func (msg *Init) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (msg *Init) Encode(w io.Writer, pver uint32) error {
 	return writeElements(w,
-		msg.LocalFeatures,
 		msg.GlobalFeatures,
+		msg.LocalFeatures,
 	)
 }
 

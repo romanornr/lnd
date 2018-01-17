@@ -13,26 +13,26 @@ import (
 	"github.com/viacoin/lnd/lnwire"
 )
 
-func establishTestConnection() (net.Conn, net.Conn, error) {
-	// First, generate the long-term private keys both ends of the connection
-	// within our test.
+func establishTestConnection() (net.Conn, net.Conn, func(), error) {
+	// First, generate the long-term private keys both ends of the
+	// connection within our test.
 	localPriv, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	remotePriv, err := btcec.NewPrivateKey(btcec.S256())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Having a port of ":0" means a random port, and interface will be
 	// chosen for our listener.
-	addr := ":0"
+	addr := "localhost:0"
 
 	// Our listener will be local, and the connection remote.
 	listener, err := NewListener(localPriv, addr)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer listener.Close()
 
@@ -42,39 +42,57 @@ func establishTestConnection() (net.Conn, net.Conn, error) {
 	}
 
 	// Initiate a connection with a separate goroutine, and listen with our
-	// main one. If both errors are nil, then encryption+auth was succesful.
-	errChan := make(chan error)
-	connChan := make(chan net.Conn)
+	// main one. If both errors are nil, then encryption+auth was
+	// successful.
+	conErrChan := make(chan error, 1)
+	connChan := make(chan net.Conn, 1)
 	go func() {
 		conn, err := Dial(remotePriv, netAddr)
 
-		errChan <- err
+		conErrChan <- err
 		connChan <- conn
 	}()
 
-	localConn, listenErr := listener.Accept()
-	if listenErr != nil {
-		return nil, nil, listenErr
+	lisErrChan := make(chan error, 1)
+	lisChan := make(chan net.Conn, 1)
+	go func() {
+		localConn, listenErr := listener.Accept()
+
+		lisErrChan <- listenErr
+		lisChan <- localConn
+	}()
+
+	select {
+	case err := <-conErrChan:
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	case err := <-lisErrChan:
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
-	if dialErr := <-errChan; dialErr != nil {
-		return nil, nil, dialErr
-	}
+	localConn := <-lisChan
 	remoteConn := <-connChan
 
-	return localConn, remoteConn, nil
+	cleanUp := func() {
+		localConn.Close()
+		remoteConn.Close()
+	}
+
+	return localConn, remoteConn, cleanUp, nil
 }
 
 func TestConnectionCorrectness(t *testing.T) {
-	t.Parallel()
-
 	// Create a test connection, grabbing either side of the connection
 	// into local variables. If the initial crypto handshake fails, then
 	// we'll get a non-nil error here.
-	localConn, remoteConn, err := establishTestConnection()
+	localConn, remoteConn, cleanUp, err := establishTestConnection()
 	if err != nil {
 		t.Fatalf("unable to establish test connection: %v", err)
 	}
+	defer cleanUp()
 
 	// Test out some message full-message reads.
 	for i := 0; i < 10; i++ {
@@ -122,7 +140,7 @@ func TestMaxPayloadLength(t *testing.T) {
 	b := Machine{}
 	b.split()
 
-	// Create a payload that's juust over the maximum alloted payload
+	// Create a payload that's juust over the maximum allotted payload
 	// length.
 	payloadToReject := make([]byte, math.MaxUint16+1)
 
@@ -157,15 +175,14 @@ func TestMaxPayloadLength(t *testing.T) {
 }
 
 func TestWriteMessageChunking(t *testing.T) {
-	t.Parallel()
-
 	// Create a test connection, grabbing either side of the connection
 	// into local variables. If the initial crypto handshake fails, then
 	// we'll get a non-nil error here.
-	localConn, remoteConn, err := establishTestConnection()
+	localConn, remoteConn, cleanUp, err := establishTestConnection()
 	if err != nil {
 		t.Fatalf("unable to establish test connection: %v", err)
 	}
+	defer cleanUp()
 
 	// Attempt to write a message which is over 3x the max allowed payload
 	// size.

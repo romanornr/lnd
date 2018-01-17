@@ -1,7 +1,7 @@
 # How to write a Python gRPC client for the Lightning Network Daemon
 
 This section enumerates what you need to do to write a client that communicates
-with lnd in Python.
+with `lnd` in Python.
 
 ### Setup and Installation
 
@@ -51,10 +51,11 @@ and set up a channel and stub to your connect to your `lnd` node:
 import rpc_pb2 as ln
 import rpc_pb2_grpc as lnrpc
 import grpc
+import os
 
 # Lnd cert is at ~/.lnd/tls.cert on Linux and
 # ~/Library/Application Support/Lnd/tls.cert on Mac
-cert = open('~/.lnd/tls.cert').read()
+cert = open(os.path.expanduser('~/.lnd/tls.cert')).read()
 creds = grpc.ssl_channel_credentials(cert)
 channel = grpc.secure_channel('localhost:10009', creds)
 stub = lnrpc.LightningStub(channel)
@@ -71,14 +72,14 @@ is at the default `localhost:10009`, with an open channel between the two nodes.
 ```python
 # Retrieve and display the wallet balance
 response = stub.WalletBalance(ln.WalletBalanceRequest(witness_only=True))
-print response.balance
+print response.total_balance
 ```
 
 #### Response-streaming RPC
 
 ```python
 request = ln.InvoiceSubscription()
-for invoice in stub.SubscribeInvoices(request);
+for invoice in stub.SubscribeInvoices(request):
     print invoice
 ```
 

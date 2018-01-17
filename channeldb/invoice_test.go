@@ -87,8 +87,9 @@ func TestInvoiceWorkflow(t *testing.T) {
 			spew.Sdump(fakeInvoice), spew.Sdump(dbInvoice))
 	}
 
-	// Settle the invoice, the versin retreived from the database should
-	// now have the settled bit toggle to true.
+	// Settle the invoice, the version retrieved from the database should
+	// now have the settled bit toggle to true and a non-default
+	// SettledDate
 	if err := db.SettleInvoice(paymentHash); err != nil {
 		t.Fatalf("unable to settle invoice: %v", err)
 	}
@@ -100,6 +101,10 @@ func TestInvoiceWorkflow(t *testing.T) {
 		t.Fatalf("invoice should now be settled but isn't")
 	}
 
+	if dbInvoice2.SettleDate.IsZero() {
+		t.Fatalf("invoice should have non-zero SettledDate but isn't")
+	}
+
 	// Attempt to insert generated above again, this should fail as
 	// duplicates are rejected by the processing logic.
 	if err := db.AddInvoice(fakeInvoice); err != ErrDuplicateInvoice {
@@ -107,7 +112,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 			"instead %v", err)
 	}
 
-	// Attempt to look up a non-existant invoice, this should also fail but
+	// Attempt to look up a non-existent invoice, this should also fail but
 	// with a "not found" error.
 	var fakeHash [32]byte
 	if _, err := db.LookupInvoice(fakeHash); err != ErrInvoiceNotFound {
