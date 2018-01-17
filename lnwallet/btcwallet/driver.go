@@ -36,6 +36,7 @@ func init() {
 	driver := &lnwallet.WalletDriver{
 		WalletType: walletType,
 		New:        createNewWallet,
+		BackEnds:   chain.BackEnds,
 	}
 
 	if err := lnwallet.RegisterWallet(driver); err != nil {

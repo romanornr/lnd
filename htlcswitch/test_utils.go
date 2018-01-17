@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"io"
 
 	"math/big"
+
+	"net"
 
 	"github.com/btcsuite/fastsha256"
 	"github.com/go-errors/errors"
@@ -84,7 +87,9 @@ func generateRandomBytes(n int) ([]byte, error) {
 // TODO(roasbeef): need to factor out, similar func re-used in many parts of codebase
 func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	aliceAmount, bobAmount btcutil.Amount,
-	chanID lnwire.ShortChannelID) (*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(), error) {
+	chanID lnwire.ShortChannelID) (*lnwallet.LightningChannel, *lnwallet.LightningChannel, func(),
+	func() (*lnwallet.LightningChannel, *lnwallet.LightningChannel,
+		error), error) {
 
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), alicePrivKey)
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(btcec.S256(), bobPrivKey)
@@ -98,7 +103,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	var hash [sha256.Size]byte
 	randomSeed, err := generateRandomBytes(sha256.Size)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	copy(hash[:], randomSeed)
 
@@ -117,6 +122,7 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		RevocationBasePoint: aliceKeyPub,
 		PaymentBasePoint:    aliceKeyPub,
 		DelayBasePoint:      aliceKeyPub,
+		HtlcBasePoint:       aliceKeyPub,
 	}
 	bobCfg := channeldb.ChannelConfig{
 		ChannelConstraints: channeldb.ChannelConstraints{
@@ -127,13 +133,14 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		RevocationBasePoint: bobKeyPub,
 		PaymentBasePoint:    bobKeyPub,
 		DelayBasePoint:      bobKeyPub,
+		HtlcBasePoint:       bobKeyPub,
 	}
 
 	bobRoot := lnwallet.DeriveRevocationRoot(bobKeyPriv, hash, aliceKeyPub)
 	bobPreimageProducer := shachain.NewRevocationProducer(bobRoot)
 	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	bobCommitPoint := lnwallet.ComputeCommitmentPoint(bobFirstRevoke[:])
 
@@ -141,38 +148,68 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	alicePreimageProducer := shachain.NewRevocationProducer(aliceRoot)
 	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	aliceCommitPoint := lnwallet.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(aliceAmount,
 		bobAmount, &aliceCfg, &bobCfg, aliceCommitPoint, bobCommitPoint,
-		fundingTxIn)
+		*fundingTxIn)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	alicePath, err := ioutil.TempDir("", "alicedb")
 	dbAlice, err := channeldb.Open(alicePath)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	bobPath, err := ioutil.TempDir("", "bobdb")
 	dbBob, err := channeldb.Open(bobPath)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-
-	var obsfucator [lnwallet.StateHintSize]byte
-	copy(obsfucator[:], aliceFirstRevoke[:])
 
 	estimator := &lnwallet.StaticFeeEstimator{
-		FeeRate:      24,
-		Confirmation: 6,
+		FeeRate: 24,
 	}
-	feePerKw := btcutil.Amount(estimator.EstimateFeePerWeight(1) * 1000)
+	feePerWeight, err := estimator.EstimateFeePerWeight(1)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	feePerKw := btcutil.Amount(feePerWeight * 1000)
 	commitFee := (feePerKw * btcutil.Amount(724)) / 1000
+
+	const broadcastHeight = 1
+	bobAddr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18555,
+	}
+
+	aliceAddr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18556,
+	}
+
+	aliceCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(bobAmount),
+		CommitFee:     commitFee,
+		FeePerKw:      feePerKw,
+		CommitTx:      aliceCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
+	bobCommit := channeldb.ChannelCommitment{
+		CommitHeight:  0,
+		LocalBalance:  lnwire.NewMSatFromSatoshis(bobAmount),
+		RemoteBalance: lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
+		CommitFee:     commitFee,
+		FeePerKw:      feePerKw,
+		CommitTx:      bobCommitTx,
+		CommitSig:     bytes.Repeat([]byte{1}, 71),
+	}
 
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
@@ -180,39 +217,40 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
-		FeePerKw:                feePerKw,
 		IsInitiator:             true,
 		Capacity:                channelCapacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(bobAmount),
-		CommitFee:               commitFee,
-		CommitTx:                *aliceCommitTx,
-		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         aliceCommit,
+		RemoteCommitment:        aliceCommit,
 		ShortChanID:             chanID,
 		Db:                      dbAlice,
 	}
+
 	bobChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            bobCfg,
 		RemoteChanCfg:           aliceCfg,
 		IdentityPub:             bobKeyPub,
-		FeePerKw:                feePerKw,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunder,
 		IsInitiator:             false,
 		Capacity:                channelCapacity,
-		LocalBalance:            lnwire.NewMSatFromSatoshis(bobAmount),
-		RemoteBalance:           lnwire.NewMSatFromSatoshis(aliceAmount - commitFee),
-		CommitFee:               commitFee,
-		CommitTx:                *bobCommitTx,
-		CommitSig:               bytes.Repeat([]byte{1}, 71),
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
+		LocalCommitment:         bobCommit,
+		RemoteCommitment:        bobCommit,
 		ShortChanID:             chanID,
 		Db:                      dbBob,
+	}
+
+	if err := aliceChannelState.SyncPending(bobAddr, broadcastHeight); err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	if err := bobChannelState.SyncPending(aliceAddr, broadcastHeight); err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	cleanUpFunc := func() {
@@ -226,52 +264,114 @@ func createTestChannel(alicePrivKey, bobPrivKey []byte,
 	channelAlice, err := lnwallet.NewLightningChannel(aliceSigner,
 		nil, estimator, aliceChannelState)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	channelBob, err := lnwallet.NewLightningChannel(bobSigner, nil,
 		estimator, bobChannelState)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Now that the channel are open, simulate the start of a session by
 	// having Alice and Bob extend their revocation windows to each other.
 	aliceNextRevoke, err := channelAlice.NextRevocationKey()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if err := channelBob.InitNextRevocation(aliceNextRevoke); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	bobNextRevoke, err := channelBob.NextRevocationKey()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if err := channelAlice.InitNextRevocation(bobNextRevoke); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	return channelAlice, channelBob, cleanUpFunc, nil
+	restore := func() (*lnwallet.LightningChannel, *lnwallet.LightningChannel,
+		error) {
+		aliceStoredChannels, err := dbAlice.FetchOpenChannels(aliceKeyPub)
+		if err != nil {
+			return nil, nil, errors.Errorf("unable to fetch alice channel: "+
+				"%v", err)
+		}
+
+		var aliceStoredChannel *channeldb.OpenChannel
+		for _, channel := range aliceStoredChannels {
+			if channel.FundingOutpoint.String() == prevOut.String() {
+				aliceStoredChannel = channel
+				break
+			}
+		}
+
+		if aliceStoredChannel == nil {
+			return nil, nil, errors.New("unable to find stored alice channel")
+		}
+
+		newAliceChannel, err := lnwallet.NewLightningChannel(aliceSigner,
+			nil, estimator, aliceStoredChannel)
+		if err != nil {
+			return nil, nil, errors.Errorf("unable to create new channel: %v",
+				err)
+		}
+
+		bobStoredChannels, err := dbBob.FetchOpenChannels(bobKeyPub)
+		if err != nil {
+			return nil, nil, errors.Errorf("unable to fetch bob channel: "+
+				"%v", err)
+		}
+
+		var bobStoredChannel *channeldb.OpenChannel
+		for _, channel := range bobStoredChannels {
+			if channel.FundingOutpoint.String() == prevOut.String() {
+				bobStoredChannel = channel
+				break
+			}
+		}
+
+		if bobStoredChannel == nil {
+			return nil, nil, errors.New("unable to find stored bob channel")
+		}
+
+		newBobChannel, err := lnwallet.NewLightningChannel(bobSigner, nil,
+			estimator, bobStoredChannel)
+		if err != nil {
+			return nil, nil, errors.Errorf("unable to create new channel: %v",
+				err)
+		}
+		return newAliceChannel, newBobChannel, nil
+	}
+
+	return channelAlice, channelBob, cleanUpFunc, restore, nil
 }
 
 // getChanID retrieves the channel point from nwire message.
-func getChanID(msg lnwire.Message) lnwire.ChannelID {
-	var point lnwire.ChannelID
+func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
+	var chanID lnwire.ChannelID
 	switch msg := msg.(type) {
 	case *lnwire.UpdateAddHTLC:
-		point = msg.ChanID
+		chanID = msg.ChanID
 	case *lnwire.UpdateFufillHTLC:
-		point = msg.ChanID
+		chanID = msg.ChanID
 	case *lnwire.UpdateFailHTLC:
-		point = msg.ChanID
+		chanID = msg.ChanID
 	case *lnwire.RevokeAndAck:
-		point = msg.ChanID
+		chanID = msg.ChanID
 	case *lnwire.CommitSig:
-		point = msg.ChanID
+		chanID = msg.ChanID
+	case *lnwire.ChannelReestablish:
+		chanID = msg.ChanID
+	case *lnwire.FundingLocked:
+		chanID = msg.ChanID
+	case *lnwire.UpdateFee:
+		chanID = msg.ChanID
+	default:
+		return chanID, fmt.Errorf("unknown type: %T", msg)
 	}
 
-	return point
+	return chanID, nil
 }
 
 // generatePayment generates the htlc add request by given path blob and
@@ -328,16 +428,20 @@ func generateRoute(hops ...ForwardingInfo) ([lnwire.OnionPacketSize]byte, error)
 type threeHopNetwork struct {
 	aliceServer      *mockServer
 	aliceChannelLink *channelLink
+	aliceBlockEpoch  chan *chainntnfs.BlockEpoch
 
-	firstBobChannelLink  *channelLink
+	firstBobChannelLink *channelLink
+	bobFirstBlockEpoch  chan *chainntnfs.BlockEpoch
+
 	bobServer            *mockServer
 	secondBobChannelLink *channelLink
+	bobSecondBlockEpoch  chan *chainntnfs.BlockEpoch
 
 	carolChannelLink *channelLink
 	carolServer      *mockServer
+	carolBlockEpoch  chan *chainntnfs.BlockEpoch
 
-	firstChannelCleanup  func()
-	secondChannelCleanup func()
+	feeEstimator *mockFeeEstimator
 
 	globalPolicy ForwardingPolicy
 }
@@ -384,14 +488,10 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 			fee := ExpectedFee(path[i].cfg.FwrdingPolicy, prevAmount)
 			runningAmt += fee
 
-			// If the this the first hop, then we don't need to
-			// apply any fee, otherwise, the amount to forward
-			// needs to take into account the fees.
-			if i == 0 {
-				amount = prevAmount
-			} else {
-				amount = prevAmount + fee
-			}
+			// Otherwise, for a node to forward an HTLC, then
+			// following inequality most hold true:
+			//     * amt_in - fee >= amt_to_forward
+			amount = runningAmt - fee
 		}
 
 		hops[i] = ForwardingInfo{
@@ -405,6 +505,21 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 	return runningAmt, totalTimelock, hops
 }
 
+type paymentResponse struct {
+	rhash chainhash.Hash
+	err   chan error
+}
+
+func (r *paymentResponse) Wait(d time.Duration) (chainhash.Hash, error) {
+	select {
+	case err := <-r.err:
+		close(r.err)
+		return r.rhash, err
+	case <-time.After(d):
+		return r.rhash, errors.New("htlc was no settled in time")
+	}
+}
+
 // makePayment takes the destination node and amount as input, sends the
 // payment and returns the error channel to wait for error to be received and
 // invoice in order to check its status after the payment finished.
@@ -416,7 +531,11 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer Peer,
 	firstHopPub [33]byte, hops []ForwardingInfo,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
-	timelock uint32) (*channeldb.Invoice, error) {
+	timelock uint32) *paymentResponse {
+
+	paymentErr := make(chan error, 1)
+
+	var rhash chainhash.Hash
 
 	sender := sendingPeer.(*mockServer)
 	receiver := receivingPeer.(*mockServer)
@@ -425,34 +544,43 @@ func (n *threeHopNetwork) makePayment(sendingPeer, receivingPeer Peer,
 	// htlc add request.
 	blob, err := generateRoute(hops...)
 	if err != nil {
-		return nil, err
+		paymentErr <- err
+		return &paymentResponse{
+			rhash: rhash,
+			err:   paymentErr,
+		}
 	}
 
 	// Generate payment: invoice and htlc.
-	invoice, htlc, err := generatePayment(invoiceAmt, htlcAmt, timelock,
-		blob)
+	invoice, htlc, err := generatePayment(invoiceAmt, htlcAmt, timelock, blob)
 	if err != nil {
-		return nil, err
+		paymentErr <- err
+		return &paymentResponse{
+			rhash: rhash,
+			err:   paymentErr,
+		}
 	}
+	rhash = fastsha256.Sum256(invoice.Terms.PaymentPreimage[:])
 
 	// Check who is last in the route and add invoice to server registry.
-	if err := receiver.registry.AddInvoice(invoice); err != nil {
-		return nil, err
+	if err := receiver.registry.AddInvoice(*invoice); err != nil {
+		paymentErr <- err
+		return &paymentResponse{
+			rhash: rhash,
+			err:   paymentErr,
+		}
 	}
 
 	// Send payment and expose err channel.
-	errChan := make(chan error)
 	go func() {
 		_, err := sender.htlcSwitch.SendHTLC(firstHopPub, htlc,
 			newMockDeobfuscator())
-		errChan <- err
+		paymentErr <- err
 	}()
 
-	select {
-	case err := <-errChan:
-		return invoice, err
-	case <-time.After(5 * time.Minute):
-		return invoice, errors.New("htlc was not settled in time")
+	return &paymentResponse{
+		rhash: rhash,
+		err:   paymentErr,
 	}
 }
 
@@ -492,9 +620,69 @@ func (n *threeHopNetwork) stop() {
 	for i := 0; i < 3; i++ {
 		<-done
 	}
+}
 
-	n.firstChannelCleanup()
-	n.secondChannelCleanup()
+type clusterChannels struct {
+	aliceToBob *lnwallet.LightningChannel
+	bobToAlice *lnwallet.LightningChannel
+	bobToCarol *lnwallet.LightningChannel
+	carolToBob *lnwallet.LightningChannel
+}
+
+// createClusterChannels creates lightning channels which are needed for
+// network cluster to be initialized.
+func createClusterChannels(aliceToBob, bobToCarol btcutil.Amount) (
+	*clusterChannels, func(), func() (*clusterChannels, error), error) {
+
+	firstChanID := lnwire.NewShortChanIDFromInt(4)
+	secondChanID := lnwire.NewShortChanIDFromInt(5)
+
+	// Create lightning channels between Alice<->Bob and Bob<->Carol
+	aliceChannel, firstBobChannel, cleanAliceBob, restoreAliceBob, err := createTestChannel(
+		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, firstChanID)
+	if err != nil {
+		return nil, nil, nil, errors.Errorf("unable to create "+
+			"alice<->bob channel: %v", err)
+	}
+
+	secondBobChannel, carolChannel, cleanBobCarol, restoreBobCarol, err := createTestChannel(
+		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, secondChanID)
+	if err != nil {
+		cleanAliceBob()
+		return nil, nil, nil, errors.Errorf("unable to create "+
+			"bob<->carol channel: %v", err)
+	}
+
+	cleanUp := func() {
+		cleanAliceBob()
+		cleanBobCarol()
+	}
+
+	restoreFromDb := func() (*clusterChannels, error) {
+		a2b, b2a, err := restoreAliceBob()
+		if err != nil {
+			return nil, err
+		}
+
+		b2c, c2b, err := restoreBobCarol()
+		if err != nil {
+			return nil, err
+		}
+
+		return &clusterChannels{
+			aliceToBob: a2b,
+			bobToAlice: b2a,
+			bobToCarol: b2c,
+			carolToBob: c2b,
+		}, nil
+	}
+
+	return &clusterChannels{
+		aliceToBob: aliceChannel,
+		bobToAlice: firstBobChannel,
+		bobToCarol: secondBobChannel,
+		carolToBob: carolChannel,
+	}, cleanUp, restoreFromDb, nil
 }
 
 // newThreeHopNetwork function creates the following topology and returns the
@@ -510,59 +698,53 @@ func (n *threeHopNetwork) stop() {
 // alice                   first bob    second bob              carol
 // channel link	    	  channel link   channel link		channel link
 //
-func newThreeHopNetwork(t *testing.T, aliceToBob,
-	bobToCarol btcutil.Amount, startingHeight uint32) *threeHopNetwork {
-	var err error
+func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
+	secondBobChannel, carolChannel *lnwallet.LightningChannel,
+	startingHeight uint32) *threeHopNetwork {
 
 	// Create three peers/servers.
 	aliceServer := newMockServer(t, "alice")
 	bobServer := newMockServer(t, "bob")
 	carolServer := newMockServer(t, "carol")
 
-	// Create mock decoder instead of sphinx one in order to mock the
-	// route which htlc should follow.
+	// Create mock decoder instead of sphinx one in order to mock the route
+	// which htlc should follow.
 	decoder := &mockIteratorDecoder{}
 
-	firstChanID := lnwire.NewShortChanIDFromInt(4)
-	secondChanID := lnwire.NewShortChanIDFromInt(5)
-
-	// Create lightning channels between Alice<->Bob and Bob<->Carol
-	aliceChannel, firstBobChannel, fCleanUp, err := createTestChannel(
-		alicePrivKey, bobPrivKey, aliceToBob, aliceToBob, firstChanID)
-	if err != nil {
-		t.Fatalf("unable to create alice<->bob channel: %v", err)
+	feeEstimator := &mockFeeEstimator{
+		byteFeeIn:   make(chan btcutil.Amount),
+		weightFeeIn: make(chan btcutil.Amount),
+		quit:        make(chan struct{}),
 	}
 
-	secondBobChannel, carolChannel, sCleanUp, err := createTestChannel(
-		bobPrivKey, carolPrivKey, bobToCarol, bobToCarol, secondChanID)
-	if err != nil {
-		t.Fatalf("unable to create bob<->carol channel: %v", err)
-	}
-
-	globalEpoch := &chainntnfs.BlockEpochEvent{
-		Epochs: make(chan *chainntnfs.BlockEpoch),
-		Cancel: func() {
-		},
-	}
 	globalPolicy := ForwardingPolicy{
 		MinHTLC:       lnwire.NewMSatFromSatoshis(5),
 		BaseFee:       lnwire.NewMSatFromSatoshis(1),
 		TimeLockDelta: 6,
 	}
 	obfuscator := newMockObfuscator()
+
+	aliceEpochChan := make(chan *chainntnfs.BlockEpoch)
+	aliceEpoch := &chainntnfs.BlockEpochEvent{
+		Epochs: aliceEpochChan,
+		Cancel: func() {
+		},
+	}
 	aliceChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
 			Peer:              bobServer,
 			Switch:            aliceServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             aliceServer.registry,
-			BlockEpochs:          globalEpoch,
+			BlockEpochs:          aliceEpoch,
+			FeeEstimator:         feeEstimator,
+			SyncStates:           true,
 		},
 		aliceChannel,
 		startingHeight,
@@ -571,19 +753,27 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 		t.Fatalf("unable to add alice channel link: %v", err)
 	}
 
+	bobFirstEpochChan := make(chan *chainntnfs.BlockEpoch)
+	bobFirstEpoch := &chainntnfs.BlockEpochEvent{
+		Epochs: bobFirstEpochChan,
+		Cancel: func() {
+		},
+	}
 	firstBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
 			Peer:              aliceServer,
 			Switch:            bobServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             bobServer.registry,
-			BlockEpochs:          globalEpoch,
+			BlockEpochs:          bobFirstEpoch,
+			FeeEstimator:         feeEstimator,
+			SyncStates:           true,
 		},
 		firstBobChannel,
 		startingHeight,
@@ -592,19 +782,27 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 		t.Fatalf("unable to add first bob channel link: %v", err)
 	}
 
+	bobSecondEpochChan := make(chan *chainntnfs.BlockEpoch)
+	bobSecondEpoch := &chainntnfs.BlockEpochEvent{
+		Epochs: bobSecondEpochChan,
+		Cancel: func() {
+		},
+	}
 	secondBobChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
 			Peer:              carolServer,
 			Switch:            bobServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             bobServer.registry,
-			BlockEpochs:          globalEpoch,
+			BlockEpochs:          bobSecondEpoch,
+			FeeEstimator:         feeEstimator,
+			SyncStates:           true,
 		},
 		secondBobChannel,
 		startingHeight,
@@ -613,19 +811,27 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 		t.Fatalf("unable to add second bob channel link: %v", err)
 	}
 
+	carolBlockEpoch := make(chan *chainntnfs.BlockEpoch)
+	carolEpoch := &chainntnfs.BlockEpochEvent{
+		Epochs: bobSecondEpochChan,
+		Cancel: func() {
+		},
+	}
 	carolChannelLink := NewChannelLink(
 		ChannelLinkConfig{
 			FwrdingPolicy:     globalPolicy,
 			Peer:              bobServer,
 			Switch:            carolServer.htlcSwitch,
 			DecodeHopIterator: decoder.DecodeHopIterator,
-			DecodeOnionObfuscator: func(io.Reader) (Obfuscator,
+			DecodeOnionObfuscator: func(io.Reader) (ErrorEncrypter,
 				lnwire.FailCode) {
 				return obfuscator, lnwire.CodeNone
 			},
 			GetLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:             carolServer.registry,
-			BlockEpochs:          globalEpoch,
+			BlockEpochs:          carolEpoch,
+			FeeEstimator:         feeEstimator,
+			SyncStates:           true,
 		},
 		carolChannel,
 		startingHeight,
@@ -635,17 +841,22 @@ func newThreeHopNetwork(t *testing.T, aliceToBob,
 	}
 
 	return &threeHopNetwork{
-		aliceServer:          aliceServer,
-		aliceChannelLink:     aliceChannelLink.(*channelLink),
-		firstBobChannelLink:  firstBobChannelLink.(*channelLink),
+		aliceServer:      aliceServer,
+		aliceChannelLink: aliceChannelLink.(*channelLink),
+		aliceBlockEpoch:  aliceEpochChan,
+
+		firstBobChannelLink: firstBobChannelLink.(*channelLink),
+		bobFirstBlockEpoch:  bobFirstEpochChan,
+
 		bobServer:            bobServer,
 		secondBobChannelLink: secondBobChannelLink.(*channelLink),
-		carolChannelLink:     carolChannelLink.(*channelLink),
-		carolServer:          carolServer,
+		bobSecondBlockEpoch:  bobSecondEpochChan,
 
-		firstChannelCleanup:  fCleanUp,
-		secondChannelCleanup: sCleanUp,
+		carolChannelLink: carolChannelLink.(*channelLink),
+		carolServer:      carolServer,
+		carolBlockEpoch:  carolBlockEpoch,
 
+		feeEstimator: feeEstimator,
 		globalPolicy: globalPolicy,
 	}
 }

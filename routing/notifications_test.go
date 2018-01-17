@@ -26,7 +26,7 @@ var (
 		Port: 9000}
 	testAddrs = []net.Addr{testAddr}
 
-	testFeatures = lnwire.NewFeatureVector([]lnwire.Feature{})
+	testFeatures = lnwire.NewFeatureVector(nil, lnwire.GlobalFeatures)
 
 	testHash = [32]byte{
 		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
@@ -147,7 +147,9 @@ func (m *mockChain) GetBestBlock() (*chainhash.Hash, int32, error) {
 	m.RLock()
 	defer m.RUnlock()
 
-	return nil, m.bestHeight, nil
+	blockHash := m.blockIndex[uint32(m.bestHeight)]
+
+	return &blockHash, m.bestHeight, nil
 }
 
 func (m *mockChain) GetTransaction(txid *chainhash.Hash) (*wire.MsgTx, error) {
@@ -162,7 +164,6 @@ func (m *mockChain) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
 	if !ok {
 		return nil, fmt.Errorf("can't find block hash, for "+
 			"height %v", blockHeight)
-
 	}
 
 	return &hash, nil
@@ -185,9 +186,9 @@ func (m *mockChain) GetUtxo(op *wire.OutPoint, _ uint32) (*wire.TxOut, error) {
 	return &utxo, nil
 }
 
-func (m *mockChain) addBlock(block *wire.MsgBlock, height uint32) {
+func (m *mockChain) addBlock(block *wire.MsgBlock, height uint32, nonce uint32) {
 	m.Lock()
-	block.Header.Nonce = height
+	block.Header.Nonce = nonce
 	hash := block.Header.BlockHash()
 	m.blocks[hash] = block
 	m.blockIndex[height] = hash
@@ -211,19 +212,32 @@ type mockChainView struct {
 	newBlocks   chan *chainview.FilteredBlock
 	staleBlocks chan *chainview.FilteredBlock
 
+	chain lnwallet.BlockChainIO
+
 	filter map[wire.OutPoint]struct{}
+
+	quit chan struct{}
 }
 
 // A compile time check to ensure mockChainView implements the
 // chainview.FilteredChainView.
 var _ chainview.FilteredChainView = (*mockChainView)(nil)
 
-func newMockChainView() *mockChainView {
+func newMockChainView(chain lnwallet.BlockChainIO) *mockChainView {
 	return &mockChainView{
+		chain:       chain,
 		newBlocks:   make(chan *chainview.FilteredBlock, 10),
 		staleBlocks: make(chan *chainview.FilteredBlock, 10),
 		filter:      make(map[wire.OutPoint]struct{}),
+		quit:        make(chan struct{}),
 	}
+}
+
+func (m *mockChainView) Reset() {
+	m.filter = make(map[wire.OutPoint]struct{})
+	m.quit = make(chan struct{})
+	m.newBlocks = make(chan *chainview.FilteredBlock, 10)
+	m.staleBlocks = make(chan *chainview.FilteredBlock, 10)
 }
 
 func (m *mockChainView) UpdateFilter(ops []wire.OutPoint, updateHeight uint32) error {
@@ -243,10 +257,31 @@ func (m *mockChainView) notifyBlock(hash chainhash.Hash, height uint32,
 	m.RLock()
 	defer m.RUnlock()
 
-	m.newBlocks <- &chainview.FilteredBlock{
+	select {
+	case m.newBlocks <- &chainview.FilteredBlock{
 		Hash:         hash,
 		Height:       height,
 		Transactions: txns,
+	}:
+	case <-m.quit:
+		return
+	}
+}
+
+func (m *mockChainView) notifyStaleBlock(hash chainhash.Hash, height uint32,
+	txns []*wire.MsgTx) {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	select {
+	case m.staleBlocks <- &chainview.FilteredBlock{
+		Hash:         hash,
+		Height:       height,
+		Transactions: txns,
+	}:
+	case <-m.quit:
+		return
 	}
 }
 
@@ -259,7 +294,31 @@ func (m *mockChainView) DisconnectedBlocks() <-chan *chainview.FilteredBlock {
 }
 
 func (m *mockChainView) FilterBlock(blockHash *chainhash.Hash) (*chainview.FilteredBlock, error) {
-	return nil, nil
+
+	block, err := m.chain.GetBlock(blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	filteredBlock := &chainview.FilteredBlock{}
+	for _, tx := range block.Transactions {
+		for _, txIn := range tx.TxIn {
+			prevOp := txIn.PreviousOutPoint
+			if _, ok := m.filter[prevOp]; ok {
+				filteredBlock.Transactions = append(
+					filteredBlock.Transactions, tx,
+				)
+
+				m.Lock()
+				delete(m.filter, prevOp)
+				m.Unlock()
+
+				break
+			}
+		}
+	}
+
+	return filteredBlock, nil
 }
 
 func (m *mockChainView) Start() error {
@@ -267,6 +326,7 @@ func (m *mockChainView) Start() error {
 }
 
 func (m *mockChainView) Stop() error {
+	close(m.quit)
 	return nil
 }
 
@@ -295,7 +355,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	// Next we'll create two test nodes that the fake channel will be open
 	// between.
@@ -389,9 +449,9 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// Create lookup map for notifications we are intending to receive. Entries
 	// are removed from the map when the anticipated notification is received.
-	var waitingFor = map[vertex]int{
-		newVertex(node1.PubKey): 1,
-		newVertex(node2.PubKey): 2,
+	var waitingFor = map[Vertex]int{
+		NewVertex(node1.PubKey): 1,
+		NewVertex(node2.PubKey): 2,
 	}
 
 	const numEdgePolicies = 2
@@ -406,7 +466,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 			}
 
 			edgeUpdate := ntfn.ChannelEdgeUpdates[0]
-			nodeVertex := newVertex(edgeUpdate.AdvertisingNode)
+			nodeVertex := NewVertex(edgeUpdate.AdvertisingNode)
 
 			if idx, ok := waitingFor[nodeVertex]; ok {
 				switch idx {
@@ -477,7 +537,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	// Create two nodes acting as endpoints in the created channel, and use
 	// them to trigger notifications by sending updated node announcement
@@ -548,9 +608,9 @@ func TestNodeUpdateNotification(t *testing.T) {
 
 	// Create lookup map for notifications we are intending to receive. Entries
 	// are removed from the map when the anticipated notification is received.
-	var waitingFor = map[vertex]int{
-		newVertex(node1.PubKey): 1,
-		newVertex(node2.PubKey): 2,
+	var waitingFor = map[Vertex]int{
+		NewVertex(node1.PubKey): 1,
+		NewVertex(node2.PubKey): 2,
 	}
 
 	// Exactly two notifications should be sent, each corresponding to the
@@ -567,7 +627,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 			}
 
 			nodeUpdate := ntfn.NodeUpdates[0]
-			nodeVertex := newVertex(nodeUpdate.IdentityKey)
+			nodeVertex := NewVertex(nodeUpdate.IdentityKey)
 			if idx, ok := waitingFor[nodeVertex]; ok {
 				switch idx {
 				case 1:
@@ -658,7 +718,7 @@ func TestNotificationCancellation(t *testing.T) {
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	// We'll create a fresh new node topology update to feed to the channel
 	// router.
@@ -743,7 +803,7 @@ func TestChannelCloseNotification(t *testing.T) {
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
 	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight)
+	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	// Next we'll create two test nodes that the fake channel will be open
 	// between.
@@ -797,7 +857,7 @@ func TestChannelCloseNotification(t *testing.T) {
 			},
 		},
 	}
-	ctx.chain.addBlock(newBlock, blockHeight)
+	ctx.chain.addBlock(newBlock, blockHeight, blockHeight)
 	ctx.chainView.notifyBlock(newBlock.Header.BlockHash(), blockHeight,
 		newBlock.Transactions)
 

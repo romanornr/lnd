@@ -185,16 +185,17 @@ func ripemd160H(d []byte) []byte {
 // OP_IF
 //     OP_CHECKSIG
 // OP_ELSE
-//     <recv key>
+//     <recv htlc key>
 //     OP_SWAP OP_SIZE 32 OP_EQUAL
 //     OP_NOTIF
-//         OP_DROP 2 OP_SWAP <sender key> 2 OP_CHECKMULTISIG
+//         OP_DROP 2 OP_SWAP <sender htlc key> 2 OP_CHECKMULTISIG
 //     OP_ELSE
 //         OP_HASH160 <ripemd160(payment hash)> OP_EQUALVERIFY
+//         OP_CHECKSIG
 //     OP_ENDIF
 // OP_ENDIF
-func senderHTLCScript(senderKey, receiverKey, revocationKey *btcec.PublicKey,
-	paymentHash []byte) ([]byte, error) {
+func senderHTLCScript(senderHtlcKey, receiverHtlcKey,
+	revocationKey *btcec.PublicKey, paymentHash []byte) ([]byte, error) {
 
 	builder := txscript.NewScriptBuilder()
 
@@ -221,7 +222,7 @@ func senderHTLCScript(senderKey, receiverKey, revocationKey *btcec.PublicKey,
 	// the stack. This will be needed later if we decide that this is the
 	// sender activating the time out clause with the HTLC timeout
 	// transaction.
-	builder.AddData(receiverKey.SerializeCompressed())
+	builder.AddData(receiverHtlcKey.SerializeCompressed())
 
 	// Atm, the top item of the stack is the receiverKey's so we use a swap
 	// to expose what is either the payment pre-image or a signature.
@@ -244,7 +245,7 @@ func senderHTLCScript(senderKey, receiverKey, revocationKey *btcec.PublicKey,
 	builder.AddOp(txscript.OP_DROP)
 	builder.AddOp(txscript.OP_2)
 	builder.AddOp(txscript.OP_SWAP)
-	builder.AddData(senderKey.SerializeCompressed())
+	builder.AddData(senderHtlcKey.SerializeCompressed())
 	builder.AddOp(txscript.OP_2)
 	builder.AddOp(txscript.OP_CHECKMULTISIG)
 
@@ -294,7 +295,7 @@ func senderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	// manner in order to encode the revocation contract into a sig+key
 	// pair.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[1] = revokeKey.SerializeCompressed()
 	witnessStack[2] = signDesc.WitnessScript
 
@@ -336,7 +337,7 @@ func senderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
 	// generated above under the receiver's public key, and the payment
 	// pre-image.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[1] = paymentPreimage
 	witnessStack[2] = signDesc.WitnessScript
 
@@ -347,7 +348,7 @@ func senderHtlcSpendRedeem(signer Signer, signDesc *SignDescriptor,
 // HTLC to activate the time locked covenant clause of a soon to be expired
 // HTLC.  This script simply spends the multi-sig output using the
 // pre-generated HTLC timeout transaction.
-func senderHtlcSpendTimeout(reciverSig []byte, signer Signer,
+func senderHtlcSpendTimeout(receiverSig []byte, signer Signer,
 	signDesc *SignDescriptor, htlcTimeoutTx *wire.MsgTx) (wire.TxWitness, error) {
 
 	sweepSig, err := signer.SignOutputRaw(htlcTimeoutTx, signDesc)
@@ -361,8 +362,8 @@ func senderHtlcSpendTimeout(reciverSig []byte, signer Signer,
 	// original OP_CHECKMULTISIG.
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = nil
-	witnessStack[1] = append(reciverSig, byte(txscript.SigHashAll))
-	witnessStack[2] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[1] = append(receiverSig, byte(txscript.SigHashAll))
+	witnessStack[2] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[3] = nil
 	witnessStack[4] = signDesc.WitnessScript
 
@@ -380,7 +381,7 @@ func senderHtlcSpendTimeout(reciverSig []byte, signer Signer,
 //     of the HTLC has passed.
 //
 // Possible Input Scripts:
-//    RECVR: <0> <sender sig> <recvr sig> <preimage>
+//    RECVR: <0> <sender sig> <recvr sig> <preimage> (spend using HTLC success transaction)
 //    REVOK: <sig> <key>
 //    SENDR: <sig> 0
 //
@@ -389,18 +390,19 @@ func senderHtlcSpendTimeout(reciverSig []byte, signer Signer,
 // OP_IF
 //     OP_CHECKSIG
 // OP_ELSE
-//     <sendr key>
+//     <sendr htlc key>
 //     OP_SWAP OP_SIZE 32 OP_EQUAL
 //     OP_IF
 //         OP_HASH160 <ripemd160(payment hash)> OP_EQUALVERIFY
-//         2 OP_SWAP <recvr key> 2 OP_CHECKMULTISIG
+//         2 OP_SWAP <recvr htlc key> 2 OP_CHECKMULTISIG
 //     OP_ELSE
 //         OP_DROP <cltv expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
 //         OP_CHECKSIG
 //     OP_ENDIF
 // OP_ENDIF
-func receiverHTLCScript(cltvExipiry uint32, senderKey,
-	receiverKey, revocationKey *btcec.PublicKey, paymentHash []byte) ([]byte, error) {
+func receiverHTLCScript(cltvExipiry uint32, senderHtlcKey,
+	receiverHtlcKey, revocationKey *btcec.PublicKey,
+	paymentHash []byte) ([]byte, error) {
 
 	builder := txscript.NewScriptBuilder()
 
@@ -428,7 +430,7 @@ func receiverHTLCScript(cltvExipiry uint32, senderKey,
 	// the stack. This will be needed later if we decide that this is the
 	// receiver transitioning the output to the claim state using their
 	// second-level HTLC success transaction.
-	builder.AddData(senderKey.SerializeCompressed())
+	builder.AddData(senderHtlcKey.SerializeCompressed())
 
 	// Atm, the top item of the stack is the sender's key so we use a swap
 	// to expose what is either the payment pre-image or something else.
@@ -459,7 +461,7 @@ func receiverHTLCScript(cltvExipiry uint32, senderKey,
 	// this output, but only by the HTLC success transaction.
 	builder.AddOp(txscript.OP_2)
 	builder.AddOp(txscript.OP_SWAP)
-	builder.AddData(receiverKey.SerializeCompressed())
+	builder.AddData(receiverHtlcKey.SerializeCompressed())
 	builder.AddOp(txscript.OP_2)
 	builder.AddOp(txscript.OP_CHECKMULTISIG)
 
@@ -474,7 +476,7 @@ func receiverHTLCScript(cltvExipiry uint32, senderKey,
 	// With that item dropped off, we can now enforce the absolute
 	// lock-time required to timeout the HTLC. If the time has passed, then
 	// we'll proceed with a checksig to ensure that this is actually the
-	// sender of he original HLTC.
+	// sender of he original HTLC.
 	builder.AddInt64(int64(cltvExipiry))
 	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
 	builder.AddOp(txscript.OP_DROP)
@@ -516,7 +518,7 @@ func receiverHtlcSpendRedeem(senderSig, paymentPreimage []byte,
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = nil
 	witnessStack[1] = append(senderSig, byte(txscript.SigHashAll))
-	witnessStack[2] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[2] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[3] = paymentPreimage
 	witnessStack[4] = signDesc.WitnessScript
 
@@ -543,7 +545,7 @@ func receiverHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	// witness stack in order to force script execution to the HTLC
 	// revocation clause.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[1] = revokeKey.SerializeCompressed()
 	witnessStack[2] = signDesc.WitnessScript
 
@@ -594,7 +596,7 @@ func receiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
 	}
 
 	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[1] = nil
 	witnessStack[2] = signDesc.WitnessScript
 
@@ -801,6 +803,34 @@ func htlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	// witness script), in order to force execution to the second portion
 	// of the if clause.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
+	witnessStack[1] = nil
+	witnessStack[2] = signDesc.WitnessScript
+
+	return witnessStack, nil
+}
+
+// HtlcSpendSuccess exposes the public witness generation function for spending
+// an HTLC success transaction, either due to an expiring time lock or having
+// had the payment preimage.
+// NOTE: The caller MUST set the txn version, sequence number, and sign
+// descriptor's sig hash cache before invocation.
+func HtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	// With the proper sequence an version set, we'll now sign the timeout
+	// transaction using the passed signed descriptor. In order to generate
+	// a valid signature, then signDesc should be using the base delay
+	// public key, and the proper single tweak bytes.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// We set a zero as the first element the witness stack (ignoring the
+	// witness script), in order to force execution to the second portion
+	// of the if clause.
+	witnessStack := wire.TxWitness(make([][]byte, 3))
 	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
 	witnessStack[1] = nil
 	witnessStack[2] = signDesc.WitnessScript
@@ -826,7 +856,7 @@ func htlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	// witness script), in order to force execution to the revocation
 	// clause in the second level HTLC script.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[1] = []byte{1}
 	witnessStack[2] = signDesc.WitnessScript
 
@@ -942,7 +972,7 @@ func CommitSpendTimeout(signer Signer, signDesc *SignDescriptor,
 	// place an empty byte in order to ensure our script is still valid
 	// from the PoV of nodes that are enforcing minimal OP_IF/OP_NOTIF.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[1] = nil
 	witnessStack[2] = signDesc.WitnessScript
 
@@ -967,7 +997,7 @@ func CommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
 	// Place a 1 as the first item in the evaluated witness stack to
 	// force script execution to the revocation clause.
 	witnessStack := wire.TxWitness(make([][]byte, 3))
-	witnessStack[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witnessStack[0] = append(sweepSig, byte(signDesc.HashType))
 	witnessStack[1] = []byte{1}
 	witnessStack[2] = signDesc.WitnessScript
 
@@ -995,7 +1025,7 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 	// we use the tweaked public key as the last item in the witness stack
 	// which was originally used to created the pkScript we're spending.
 	witness := make([][]byte, 2)
-	witness[0] = append(sweepSig, byte(txscript.SigHashAll))
+	witness[0] = append(sweepSig, byte(signDesc.HashType))
 	witness[1] = TweakPubKeyWithTweak(
 		signDesc.PubKey, signDesc.SingleTweak,
 	).SerializeCompressed()
@@ -1026,7 +1056,7 @@ func SingleTweakBytes(commitPoint, basePoint *btcec.PublicKey) []byte {
 //
 //   tweakPub := basePoint + sha256(commitPoint || basePoint) * G
 //            := G*k + sha256(commitPoint || basePoint)*G
-//            := G*(k + sha256(commitPoint || basePoint)
+//            := G*(k + sha256(commitPoint || basePoint))
 //
 // Therefore, if a party possess the value k, the private key of the base
 // point, then they are able to derive the private key by computing: compute
@@ -1036,8 +1066,8 @@ func SingleTweakBytes(commitPoint, basePoint *btcec.PublicKey) []byte {
 //
 // Where N is the order of the sub-group.
 //
-// The rational for tweaking all public keys used within the commitment
-// contracts are to ensure that all keys are properly delinearized to avoid any
+// The rationale for tweaking all public keys used within the commitment
+// contracts is to ensure that all keys are properly delinearized to avoid any
 // funny business when jointly collaborating to compute public and private
 // keys. Additionally, the use of the per commitment point ensures that each
 // commitment state houses a unique set of keys which is useful when creating
@@ -1046,30 +1076,21 @@ func SingleTweakBytes(commitPoint, basePoint *btcec.PublicKey) []byte {
 // TODO(roasbeef): should be using double-scalar mult here
 func TweakPubKey(basePoint, commitPoint *btcec.PublicKey) *btcec.PublicKey {
 	tweakBytes := SingleTweakBytes(commitPoint, basePoint)
-	tweakX, tweakY := btcec.S256().ScalarBaseMult(tweakBytes)
-
-	// TODO(roasbeef): check that both passed on curve?
-
-	x, y := btcec.S256().Add(basePoint.X, basePoint.Y, tweakX, tweakY)
-
-	return &btcec.PublicKey{
-		X:     x,
-		Y:     y,
-		Curve: btcec.S256(),
-	}
+	return TweakPubKeyWithTweak(basePoint, tweakBytes)
 }
 
 // TweakPubKeyWithTweak is the exact same as the TweakPubKey function, however
 // it accepts the raw tweak bytes directly rather than the commitment point.
 func TweakPubKeyWithTweak(pubKey *btcec.PublicKey, tweakBytes []byte) *btcec.PublicKey {
-	tweakX, tweakY := btcec.S256().ScalarBaseMult(tweakBytes)
+	curve := btcec.S256()
+	tweakX, tweakY := curve.ScalarBaseMult(tweakBytes)
 
-	x, y := btcec.S256().Add(pubKey.X, pubKey.Y, tweakX, tweakY)
-
+	// TODO(roasbeef): check that both passed on curve?
+	x, y := curve.Add(pubKey.X, pubKey.Y, tweakX, tweakY)
 	return &btcec.PublicKey{
 		X:     x,
 		Y:     y,
-		Curve: btcec.S256(),
+		Curve: curve,
 	}
 }
 
@@ -1150,7 +1171,7 @@ func DeriveRevocationPubkey(revokeBase, commitPoint *btcec.PublicKey) *btcec.Pub
 // within the commitment transaction of a node in the case that they broadcast
 // a previously revoked commitment transaction.
 //
-// The private key is derived as follwos:
+// The private key is derived as follows:
 //   revokePriv := (revokeBasePriv * sha256(revocationBase || commitPoint)) +
 //                 (commitSecret * sha256(commitPoint || revocationBase)) mod N
 //
@@ -1220,10 +1241,10 @@ func DeriveRevocationRoot(derivationRoot *btcec.PrivateKey,
 // number is encoded using 48 bits. The lower 24 bits of the lock time are the
 // lower 24 bits of the obfuscated state number and the lower 24 bits of the
 // sequence field are the higher 24 bits. Finally before encoding, the
-// obfuscater is XOR'd against the state number in order to hide the exact
+// obfuscator is XOR'd against the state number in order to hide the exact
 // state number from the PoV of outside parties.
 func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
-	obsfucator [StateHintSize]byte) error {
+	obfuscator [StateHintSize]byte) error {
 
 	// With the current schema we are only able able to encode state num
 	// hints up to 2^48. Therefore if the passed height is greater than our
@@ -1243,7 +1264,7 @@ func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 	// commitment transaction in the case that either commitment
 	// transaction is broadcast directly on chain.
 	var obfs [8]byte
-	copy(obfs[2:], obsfucator[:])
+	copy(obfs[2:], obfuscator[:])
 	xorInt := binary.BigEndian.Uint64(obfs[:])
 
 	stateNum = stateNum ^ xorInt
@@ -1258,15 +1279,15 @@ func SetStateNumHint(commitTx *wire.MsgTx, stateNum uint64,
 
 // GetStateNumHint recovers the current state number given a commitment
 // transaction which has previously had the state number encoded within it via
-// setStateNumHint and a shared obsfucator.
+// setStateNumHint and a shared obfuscator.
 //
 // See setStateNumHint for further details w.r.t exactly how the state-hints
 // are encoded.
-func GetStateNumHint(commitTx *wire.MsgTx, obsfucator [StateHintSize]byte) uint64 {
-	// Convert the obfuscater into a uint64, this will be used to
+func GetStateNumHint(commitTx *wire.MsgTx, obfuscator [StateHintSize]byte) uint64 {
+	// Convert the obfuscator into a uint64, this will be used to
 	// de-obfuscate the final recovered state number.
 	var obfs [8]byte
-	copy(obfs[2:], obsfucator[:])
+	copy(obfs[2:], obfuscator[:])
 	xorInt := binary.BigEndian.Uint64(obfs[:])
 
 	// Retrieve the state hint from the sequence number and locktime

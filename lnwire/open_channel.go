@@ -8,6 +8,17 @@ import (
 	"github.com/roasbeef/btcutil"
 )
 
+// FundingFlag represents the possible bit mask values for the ChannelFlags
+// field within the OpenChannel struct.
+type FundingFlag uint8
+
+const (
+	// FFAnnounceChannel is a FundingFlag that when set, indicates the
+	// initiator of a funding flow wishes to announce the channel to the
+	// greater network.
+	FFAnnounceChannel FundingFlag = 1 << iota
+)
+
 // OpenChannel is the message Alice sends to Bob if we should like to create a
 // channel with Bob where she's the sole provider of funds to the channel.
 // Single funder channels simplify the initial funding workflow, are supported
@@ -91,6 +102,12 @@ type OpenChannel struct {
 	// where they claim funds.
 	DelayedPaymentPoint *btcec.PublicKey
 
+	// HtlcPoint is the base point used to derive the set of keys for this
+	// party that will be used within the HTLC public key scripts.  This
+	// value is combined with the receiver's revocation base point in order
+	// to derive the keys that are used within HTLC scripts.
+	HtlcPoint *btcec.PublicKey
+
 	// FirstCommitmentPoint is the first commitment point for the sending
 	// party. This value should be combined with the receiver's revocation
 	// base point in order to derive the revocation keys that are placed
@@ -101,7 +118,7 @@ type OpenChannel struct {
 	// channel to specify further behavior surrounding the channel.
 	// Currently, the least significant bit of this bit field indicates the
 	// initiator of the channel wishes to advertise this channel publicly.
-	ChannelFlags byte
+	ChannelFlags FundingFlag
 }
 
 // A compile time check to ensure OpenChannel implements the lnwire.Message
@@ -130,6 +147,7 @@ func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
 		o.RevocationPoint,
 		o.PaymentPoint,
 		o.DelayedPaymentPoint,
+		o.HtlcPoint,
 		o.FirstCommitmentPoint,
 		o.ChannelFlags,
 	)
@@ -157,6 +175,7 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 		&o.RevocationPoint,
 		&o.PaymentPoint,
 		&o.DelayedPaymentPoint,
+		&o.HtlcPoint,
 		&o.FirstCommitmentPoint,
 		&o.ChannelFlags,
 	)
@@ -175,6 +194,6 @@ func (o *OpenChannel) MsgType() MessageType {
 //
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) MaxPayloadLength(uint32) uint32 {
-	// (32 * 2) + (8 * 6) + (4 * 1) + (2 * 2) + (33 * 5) + 1
-	return 286
+	// (32 * 2) + (8 * 6) + (4 * 1) + (2 * 2) + (33 * 6) + 1
+	return 319
 }

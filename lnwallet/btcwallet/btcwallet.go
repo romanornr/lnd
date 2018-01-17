@@ -61,7 +61,7 @@ var _ lnwallet.WalletController = (*BtcWallet)(nil)
 // configuration struct.
 func New(cfg Config) (*BtcWallet, error) {
 	// Ensure the wallet exists or create it when the create flag is set.
-	netDir := networkDir(cfg.DataDir, cfg.NetParams)
+	netDir := NetworkDir(cfg.DataDir, cfg.NetParams)
 
 	var pubPass []byte
 	if cfg.PublicPass == nil {
@@ -85,8 +85,9 @@ func New(cfg Config) (*BtcWallet, error) {
 			return nil, err
 		}
 	} else {
-		// Wallet has been created and been initialized at this point, open it
-		// along with all the required DB namepsaces, and the DB itself.
+		// Wallet has been created and been initialized at this point,
+		// open it along with all the required DB namepsaces, and the
+		// DB itself.
 		wallet, err = loader.OpenExistingWallet(pubPass, false)
 		if err != nil {
 			return nil, err
@@ -108,14 +109,6 @@ func New(cfg Config) (*BtcWallet, error) {
 		return nil, err
 	}
 
-	// Using the passed fee estimator, we'll compute the relay fee for all
-	// transactions made which will be scaled up according to the size of a
-	// particular transaction.
-	//
-	// TODO(roasbeef): hook in dynamic relay fees
-	relayFee := cfg.FeeEstimator.EstimateFeePerByte(3) * 1000
-	wallet.SetRelayFee(btcutil.Amount(relayFee))
-
 	return &BtcWallet{
 		cfg:       &cfg,
 		wallet:    wallet,
@@ -124,6 +117,17 @@ func New(cfg Config) (*BtcWallet, error) {
 		netParams: cfg.NetParams,
 		utxoCache: make(map[wire.OutPoint]*wire.TxOut),
 	}, nil
+}
+
+// BackEnd returns the underlying ChainService's name as a string.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) BackEnd() string {
+	if b.chain != nil {
+		return b.chain.BackEnd()
+	}
+
+	return ""
 }
 
 // Start initializes the underlying rpc connection, the wallet itself, and
@@ -196,7 +200,7 @@ func (b *BtcWallet) ConfirmedBalance(confs int32, witness bool) (btcutil.Amount,
 }
 
 // NewAddress returns the next external or internal address for the wallet
-// dicatated by the value of the `change` paramter. If change is true, then an
+// dictated by the value of the `change` parameter. If change is true, then an
 // internal address will be returned, otherwise an external address should be
 // returned.
 //
@@ -222,7 +226,7 @@ func (b *BtcWallet) NewAddress(t lnwallet.AddressType, change bool) (btcutil.Add
 	return b.wallet.NewAddress(defaultAccount, addrType)
 }
 
-// GetPrivKey retrives the underlying private key associated with the passed
+// GetPrivKey retrieves the underlying private key associated with the passed
 // address. If the we're unable to locate the proper private key, then a
 // non-nil error will be returned.
 //
@@ -310,8 +314,14 @@ func (b *BtcWallet) FetchRootKey() (*btcec.PrivateKey, error) {
 // outputs are non-standard, a non-nil error will be be returned.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut) (*chainhash.Hash, error) {
-	return b.wallet.SendOutputs(outputs, defaultAccount, 1)
+func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
+	feeSatPerByte btcutil.Amount) (*chainhash.Hash, error) {
+
+	// The fee rate is passed in using units of sat/byte, so we'll scale
+	// this up to sat/KB as the SendOutputs method requires this unit.
+	feeSatPerKB := feeSatPerByte * 1024
+
+	return b.wallet.SendOutputs(outputs, defaultAccount, 1, feeSatPerKB)
 }
 
 // LockOutpoint marks an outpoint as locked meaning it will no longer be deemed
@@ -325,7 +335,7 @@ func (b *BtcWallet) LockOutpoint(o wire.OutPoint) {
 }
 
 // UnlockOutpoint unlocks an previously locked output, marking it eligible for
-// coin seleciton.
+// coin selection.
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) UnlockOutpoint(o wire.OutPoint) {
@@ -353,17 +363,28 @@ func (b *BtcWallet) ListUnspentWitness(minConfs int32) ([]*lnwallet.Utxo, error)
 			return nil, err
 		}
 
-		// TODO(roasbeef): this assumes all p2sh outputs returned by
-		// the wallet are nested p2sh...
-		if txscript.IsPayToWitnessPubKeyHash(pkScript) ||
-			txscript.IsPayToScriptHash(pkScript) {
+		var addressType lnwallet.AddressType
+		if txscript.IsPayToWitnessPubKeyHash(pkScript) {
+			addressType = lnwallet.WitnessPubKey
+		} else if txscript.IsPayToScriptHash(pkScript) {
+			// TODO(roasbeef): This assumes all p2sh outputs returned by the
+			// wallet are nested p2pkh. We can't check the redeem script because
+			// the btcwallet service does not include it.
+			addressType = lnwallet.NestedWitnessPubKey
+		}
+
+		if addressType == lnwallet.WitnessPubKey ||
+			addressType == lnwallet.NestedWitnessPubKey {
+
 			txid, err := chainhash.NewHashFromStr(output.TxID)
 			if err != nil {
 				return nil, err
 			}
 
 			utxo := &lnwallet.Utxo{
-				Value: btcutil.Amount(output.Amount * 1e8),
+				AddressType: addressType,
+				Value:       btcutil.Amount(output.Amount * 1e8),
+				PkScript:    pkScript,
 				OutPoint: wire.OutPoint{
 					Hash:  *txid,
 					Index: output.Vout,
@@ -385,13 +406,10 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx) error {
 
 // extractBalanceDelta extracts the net balance delta from the PoV of the
 // wallet given a TransactionSummary.
-func extractBalanceDelta(txSummary base.TransactionSummary) (btcutil.Amount, error) {
-	tx := wire.NewMsgTx(1)
-	txReader := bytes.NewReader(txSummary.Transaction)
-	if err := tx.Deserialize(txReader); err != nil {
-		return -1, nil
-	}
-
+func extractBalanceDelta(
+	txSummary base.TransactionSummary,
+	tx *wire.MsgTx,
+) (btcutil.Amount, error) {
 	// For each input we debit the wallet's outflow for this transaction,
 	// and for each output we credit the wallet's inflow for this
 	// transaction.
@@ -408,11 +426,32 @@ func extractBalanceDelta(txSummary base.TransactionSummary) (btcutil.Amount, err
 
 // minedTransactionsToDetails is a helper function which converts a summary
 // information about mined transactions to a TransactionDetail.
-func minedTransactionsToDetails(currentHeight int32,
-	block base.Block) ([]*lnwallet.TransactionDetail, error) {
+func minedTransactionsToDetails(
+	currentHeight int32,
+	block base.Block,
+	chainParams *chaincfg.Params,
+) ([]*lnwallet.TransactionDetail, error) {
 
 	details := make([]*lnwallet.TransactionDetail, 0, len(block.Transactions))
 	for _, tx := range block.Transactions {
+		wireTx := &wire.MsgTx{}
+		txReader := bytes.NewReader(tx.Transaction)
+
+		if err := wireTx.Deserialize(txReader); err != nil {
+			return nil, err
+		}
+
+		var destAddresses []btcutil.Address
+		for _, txOut := range wireTx.TxOut {
+			_, outAddresses, _, err :=
+				txscript.ExtractPkScriptAddrs(txOut.PkScript, chainParams)
+			if err != nil {
+				return nil, err
+			}
+
+			destAddresses = append(destAddresses, outAddresses...)
+		}
+
 		txDetail := &lnwallet.TransactionDetail{
 			Hash:             *tx.Hash,
 			NumConfirmations: currentHeight - block.Height + 1,
@@ -420,9 +459,10 @@ func minedTransactionsToDetails(currentHeight int32,
 			BlockHeight:      block.Height,
 			Timestamp:        block.Timestamp,
 			TotalFees:        int64(tx.Fee),
+			DestAddresses:    destAddresses,
 		}
 
-		balanceDelta, err := extractBalanceDelta(tx)
+		balanceDelta, err := extractBalanceDelta(tx, wireTx)
 		if err != nil {
 			return nil, err
 		}
@@ -434,16 +474,25 @@ func minedTransactionsToDetails(currentHeight int32,
 	return details, nil
 }
 
-// unminedTransactionsToDetail is a helper funciton which converts a summary
+// unminedTransactionsToDetail is a helper function which converts a summary
 // for a unconfirmed transaction to a transaction detail.
-func unminedTransactionsToDetail(summary base.TransactionSummary) (*lnwallet.TransactionDetail, error) {
+func unminedTransactionsToDetail(
+	summary base.TransactionSummary,
+) (*lnwallet.TransactionDetail, error) {
+	wireTx := &wire.MsgTx{}
+	txReader := bytes.NewReader(summary.Transaction)
+
+	if err := wireTx.Deserialize(txReader); err != nil {
+		return nil, err
+	}
+
 	txDetail := &lnwallet.TransactionDetail{
 		Hash:      *summary.Hash,
 		TotalFees: int64(summary.Fee),
 		Timestamp: summary.Timestamp,
 	}
 
-	balanceDelta, err := extractBalanceDelta(summary)
+	balanceDelta, err := extractBalanceDelta(summary, wireTx)
 	if err != nil {
 		return nil, err
 	}
@@ -477,7 +526,7 @@ func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, err
 	// TransactionDetail which re-packages the data returned by the base
 	// wallet.
 	for _, blockPackage := range txns.MinedTransactions {
-		details, err := minedTransactionsToDetails(currentHeight, blockPackage)
+		details, err := minedTransactionsToDetails(currentHeight, blockPackage, b.netParams)
 		if err != nil {
 			return nil, err
 		}
@@ -552,7 +601,7 @@ out:
 			// notifications for any newly confirmed transactions.
 			go func() {
 				for _, block := range txNtfn.AttachedBlocks {
-					details, err := minedTransactionsToDetails(currentHeight, block)
+					details, err := minedTransactionsToDetails(currentHeight, block, t.w.ChainParams())
 					if err != nil {
 						continue
 					}
@@ -630,22 +679,9 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 
 	// Next, query the chain backend to grab the info about the tip of the
 	// main chain.
-	switch backend := b.cfg.ChainSource.(type) {
-	case *chain.NeutrinoClient:
-		header, height, err := backend.CS.BlockHeaders.ChainTip()
-		if err != nil {
-			return false, err
-		}
-
-		bh := header.BlockHash()
-		bestHash = &bh
-		bestHeight = int32(height)
-
-	case *chain.RPCClient:
-		bestHash, bestHeight, err = backend.GetBestBlock()
-		if err != nil {
-			return false, err
-		}
+	bestHash, bestHeight, err = b.cfg.ChainSource.GetBestBlock()
+	if err != nil {
+		return false, err
 	}
 
 	// If the wallet hasn't yet fully synced to the node's best chain tip,
@@ -658,21 +694,9 @@ func (b *BtcWallet) IsSynced() (bool, error) {
 	// still may not yet be synced as the chain backend may still be
 	// catching up to the main chain. So we'll grab the block header in
 	// order to make a guess based on the current time stamp.
-	var blockHeader *wire.BlockHeader
-	switch backend := b.cfg.ChainSource.(type) {
-
-	case *chain.NeutrinoClient:
-		bh, _, err := backend.CS.BlockHeaders.FetchHeader(bestHash)
-		if err != nil {
-			return false, err
-		}
-		blockHeader = bh
-
-	case *chain.RPCClient:
-		blockHeader, err = backend.GetBlockHeader(bestHash)
-		if err != nil {
-			return false, err
-		}
+	blockHeader, err := b.cfg.ChainSource.GetBlockHeader(bestHash)
+	if err != nil {
+		return false, err
 	}
 
 	// If the timestamp no the best header is more than 2 hours in the

@@ -33,7 +33,6 @@ check_test_ports() {
 # tool won't gather any useful coverage information from them.
 test_with_coverage_profile() {
     print "* Running tests with creating coverage profile"
-    check_test_ports
 
     echo "mode: count" > profile.cov
 
@@ -74,7 +73,6 @@ test_with_coverage_profile() {
 # profile but with race condition checks.
 test_race_conditions() {
     print "* Running tests with the race condition detector"
-    check_test_ports
     
     test_targets=$(go list ./... | grep -v '/vendor/')
     env GORACE="history_size=7 halt_on_error=1" go test -v -p 1 -race $test_targets
@@ -113,19 +111,22 @@ NEED_LINT="false"
 NEED_COVERAGE="false"
 NEED_RACE="false"
 NEED_INSTALL="false"
+NEED_LOGS="false"
 
-while getopts "lrci" flag; do
+while getopts "lrcio" flag; do
         case "${flag}" in
             l) NEED_LINT="true" ;;
             r) NEED_RACE="true" ;;
             c) NEED_COVERAGE="true" ;;
             i) NEED_INSTALL="true" ;;
+            o) NEED_LOGS="true" ;;
             *)
-                printf '\nUsage: %s [-l] [-r] [-c] [-i], where:\n' $0
+                printf '\nUsage: %s [-l] [-r] [-c] [-i] [-o], where:\n' $0
                 printf ' -l: include code lint check\n'
                 printf ' -r: run tests with race condition check\n'
                 printf ' -c: run tests with test coverage\n'
                 printf ' -i: reinstall project dependencies\n'
+                printf ' -o: generate logs for spawned lnd instances\n'
                 exit 1 ;;
         esac
     done
@@ -164,7 +165,13 @@ fi
 # we may calmly send coverage profile (if script is run on travis)
 if [ "$NEED_COVERAGE" == "true" ] || [ "$RACE" == "false" ]; then
     print "* Running integration tests"
-    go test -v -tags rpctest
+
+    LOGOUTPUT_FLAG=""
+    if [ "$NEED_LOGS" == "true" ] || [ "$LOGS" == "true" ]; then
+        LOGOUTPUT_FLAG="-logoutput=true"
+    fi
+
+    go test -v -tags rpctest "$LOGOUTPUT_FLAG"
 
     test_with_coverage_profile
 fi

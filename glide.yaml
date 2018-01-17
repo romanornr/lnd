@@ -4,7 +4,7 @@ import:
   version: ^1.2.1
 - package: github.com/btcsuite/btclog
   version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
-- package: github.com/btcsuite/go-flags
+- package: github.com/jessevdk/go-flags
 - package: github.com/jrick/logrotate
   version: a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a
 - package: github.com/davecgh/go-spew
@@ -15,7 +15,7 @@ import:
   - proto
 - package: github.com/howeyc/gopass
 - package: github.com/roasbeef/btcd
-  version: 4b411f0e78f1faa96ae650d886170d018c1835bf
+  version: 9978b939c33973be19b932fa7b936079bb7ba38d
   subpackages:
   - blockchain
   - btcec
@@ -24,17 +24,18 @@ import:
   - txscript
   - wire
   - connmgr
+- package: github.com/lightninglabs/gozmq
 - package: github.com/roasbeef/btcrpcclient
   version: d0f4db8b4dad0ca3d569b804f21247c3dd96acbb
 - package: github.com/roasbeef/btcutil
-  version: 1584022350b4400b511beab6a013f0189adeef40
+  version: c3ff179366044979fb9856c2feb79bd4c2184c7a
   subpackages:
   - bloom
   - coinset
   - hdkeychain
   - txsort
 - package: github.com/roasbeef/btcwallet
-  version: 30ed6c8e49c45be04e9a9af0518245f27f2f6686
+  version: 6c1491e092f39d6ed4e9103b9dc8322d04ca98bb
   subpackages:
   - chain
   - waddrmgr
@@ -75,9 +76,10 @@ import:
   subpackages:
   - chaincfg
 - package: github.com/lightninglabs/neutrino
-  version: c11a86339f7e53170b0ef38fcf495e172d792e02
+  version: 5560001600544391c68e02bd1cc7cdbd25318030
 - package: gopkg.in/macaroon.v1
 - package: gopkg.in/macaroon-bakery.v1
 - package: github.com/juju/loggo
 - package: github.com/rogpeppe/fastuuid
 - package: gopkg.in/errgo.v1
+- package: github.com/miekg/dns

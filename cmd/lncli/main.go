@@ -1,3 +1,7 @@
+// Copyright (c) 2013-2017 The btcsuite developers
+// Copyright (c) 2015-2016 The Decred developers
+// Copyright (C) 2015-2017 The Lightning Network Developers
+
 package main
 
 import (
@@ -32,6 +36,16 @@ var (
 func fatal(err error) {
 	fmt.Fprintf(os.Stderr, "[lncli] %v\n", err)
 	os.Exit(1)
+}
+
+func getWalletUnlockerClient(ctx *cli.Context) (lnrpc.WalletUnlockerClient, func()) {
+	conn := getClientConn(ctx)
+
+	cleanUp := func() {
+		conn.Close()
+	}
+
+	return lnrpc.NewWalletUnlockerClient(conn), cleanUp
 }
 
 func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
@@ -146,6 +160,8 @@ func main() {
 		},
 	}
 	app.Commands = []cli.Command{
+		createCommand,
+		unlockCommand,
 		newAddressCommand,
 		sendManyCommand,
 		sendCoinsCommand,
@@ -159,6 +175,7 @@ func main() {
 		getInfoCommand,
 		pendingChannelsCommand,
 		sendPaymentCommand,
+		payInvoiceCommand,
 		addInvoiceCommand,
 		lookupInvoiceCommand,
 		listInvoicesCommand,
@@ -176,7 +193,7 @@ func main() {
 		signMessageCommand,
 		verifyMessageCommand,
 		feeReportCommand,
-		updateFeesCommand,
+		updateChannelPolicyCommand,
 	}
 
 	if err := app.Run(os.Args); err != nil {

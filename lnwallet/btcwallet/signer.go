@@ -1,8 +1,6 @@
 package btcwallet
 
 import (
-	"fmt"
-
 	"github.com/go-errors/errors"
 	"github.com/roasbeef/btcd/btcec"
 	"github.com/roasbeef/btcd/chaincfg/chainhash"
@@ -72,8 +70,7 @@ func (b *BtcWallet) fetchOutputAddr(script []byte) (waddrmgr.ManagedAddress, err
 		}
 	}
 
-	// TODO(roasbeef): use the errors.wrap package
-	return nil, fmt.Errorf("address not found")
+	return nil, errors.Errorf("address not found")
 }
 
 // fetchPrivKey attempts to retrieve the raw private key corresponding to the
@@ -141,7 +138,7 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 
 	amt := signDesc.Output.Value
 	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, amt, witnessScript, txscript.SigHashAll,
+		signDesc.InputIndex, amt, witnessScript, signDesc.HashType,
 		privKey)
 	if err != nil {
 		return nil, err
@@ -227,7 +224,7 @@ func (b *BtcWallet) ComputeInputScript(tx *wire.MsgTx,
 	// TODO(roasbeef): adhere to passed HashType
 	witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
 		signDesc.InputIndex, signDesc.Output.Value, witnessProgram,
-		txscript.SigHashAll, privKey, true)
+		signDesc.HashType, privKey, true)
 	if err != nil {
 		return nil, err
 	}

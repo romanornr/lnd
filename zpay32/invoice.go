@@ -13,6 +13,7 @@ import (
 	"github.com/roasbeef/btcutil"
 	"github.com/roasbeef/btcutil/bech32"
 	"github.com/viacoin/lnd/lnwire"
+	"github.com/viacoin/lnd/routing"
 )
 
 const (
@@ -60,12 +61,14 @@ const (
 
 	// fieldTypeR contains extra routing information.
 	fieldTypeR = 3
+
+	// fieldTypeC contains an optional requested final CLTV delta.
+	fieldTypeC = 24
 )
 
 // MessageSigner is passed to the Encode method to provide a signature
 // corresponding to the node's pubkey.
 type MessageSigner struct {
-
 	// SignCompact signs the passed hash with the node's privkey. The
 	// returned signature should be 65 bytes, where the last 64 are the
 	// compact signature, and the first one is a header byte. This is the
@@ -99,6 +102,18 @@ type Invoice struct {
 	// encoding then the destination pubkey won't be added as an 'n' field,
 	// and the pubkey will be extracted from the signature during decoding.
 	Destination *btcec.PublicKey
+
+	// minFinalCLTVExpiry is the value that the creator of the invoice
+	// expects to be used for the
+	//
+	// NOTE: This value is optional, and should be set to nil if the
+	// invoice creator doesn't have a strong requirement on the CLTV expiry
+	// of the final HTLC extended to it.
+	//
+	// This field is un-exported and can only be read by the
+	// MinFinalCLTVExpiry() method. By forcing callers to read via this
+	// method, we can easily enforce the default if not specified.
+	minFinalCLTVExpiry *uint64
 
 	// Description is a short description of the purpose of this invoice.
 	// Optional. Non-nil iff DescriptionHash is nil.
@@ -137,8 +152,13 @@ type ExtraRoutingInfo struct {
 	// ShortChanID is the channel ID of the channel.
 	ShortChanID uint64
 
-	// Fee is the fee required for routing along this channel.
-	Fee uint64
+	// FeeBaseMsat is the base fee in millisatoshis required for routing
+	// along this channel.
+	FeeBaseMsat uint32
+
+	// FeeProportionalMillionths is the proportional fee in millionths of a
+	// satoshi required for routing along this channel.
+	FeeProportionalMillionths uint32
 
 	// CltvExpDelta is this channel's cltv expiry delta.
 	CltvExpDelta uint16
@@ -162,16 +182,27 @@ func Destination(destination *btcec.PublicKey) func(*Invoice) {
 
 // Description is a functional option that allows callers of NewInvoice to set
 // the payment description of the created Invoice.
-// Note: Must be used if and only if DescriptionHash is not used.
+//
+// NOTE: Must be used if and only if DescriptionHash is not used.
 func Description(description string) func(*Invoice) {
 	return func(i *Invoice) {
 		i.Description = &description
 	}
 }
 
+// CLTVExpiry is an optional value which allows the receiver of the payment to
+// specify the delta between the current height and the HTLC extended to the
+// receiver.
+func CLTVExpiry(delta uint64) func(*Invoice) {
+	return func(i *Invoice) {
+		i.minFinalCLTVExpiry = &delta
+	}
+}
+
 // DescriptionHash is a functional option that allows callers of NewInvoice to
 // set the payment description hash of the created Invoice.
-// Note: Must be used if and only if Description is not used.
+//
+// NOTE: Must be used if and only if Description is not used.
 func DescriptionHash(descriptionHash [32]byte) func(*Invoice) {
 	return func(i *Invoice) {
 		i.DescriptionHash = &descriptionHash
@@ -206,8 +237,9 @@ func RoutingInfo(routingInfo []ExtraRoutingInfo) func(*Invoice) {
 }
 
 // NewInvoice creates a new Invoice object. The last parameter is a set of
-// variadic argumements for setting optional fields of the invoice.
-// Note: Either Description  or DescriptionHash must be provided for the Invoice
+// variadic arguments for setting optional fields of the invoice.
+//
+// NOTE: Either Description  or DescriptionHash must be provided for the Invoice
 // to be considered valid.
 func NewInvoice(net *chaincfg.Params, paymentHash [32]byte,
 	timestamp time.Time, options ...func(*Invoice)) (*Invoice, error) {
@@ -459,6 +491,17 @@ func (invoice *Invoice) Expiry() time.Duration {
 	return 3600 * time.Second
 }
 
+// MinFinalCLTVExpiry returns the minimum final CLTV expiry delta as specified
+// by the creator of the invoice. This value specifies the delta between the
+// current height and the expiry height of the HTLC extended in the last hop.
+func (invoice *Invoice) MinFinalCLTVExpiry() uint64 {
+	if invoice.minFinalCLTVExpiry != nil {
+		return *invoice.minFinalCLTVExpiry
+	}
+
+	return routing.DefaultFinalCLTVDelta
+}
+
 // validateInvoice does a sanity check of the provided Invoice, making sure it
 // has all the necessary fields set for it to be considered valid by BOLT-0011.
 func validateInvoice(invoice *Invoice) error {
@@ -651,6 +694,18 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 			dur := time.Duration(exp) * time.Second
 			invoice.expiry = &dur
+		case fieldTypeC:
+			if invoice.minFinalCLTVExpiry != nil {
+				// We skip the field if we have already seen a
+				// supported one.
+				continue
+			}
+
+			expiry, err := base32ToUint64(base32Data)
+			if err != nil {
+				return err
+			}
+			invoice.minFinalCLTVExpiry = &expiry
 		case fieldTypeF:
 			if invoice.FallbackAddr != nil {
 				// We skip the field if we have already seen a
@@ -675,7 +730,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 					addr, err = btcutil.NewAddressWitnessScriptHash(
 						witness, net)
 				default:
-					return fmt.Errorf("unknow witness "+
+					return fmt.Errorf("unknown witness "+
 						"program length: %d", len(witness))
 				}
 				if err != nil {
@@ -730,8 +785,10 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				}
 				info.ShortChanID = binary.BigEndian.Uint64(
 					base256Data[33:41])
-				info.Fee = binary.BigEndian.Uint64(
-					base256Data[41:49])
+				info.FeeBaseMsat = binary.BigEndian.Uint32(
+					base256Data[41:45])
+				info.FeeProportionalMillionths = binary.BigEndian.Uint32(
+					base256Data[45:49])
 				info.CltvExpDelta = binary.BigEndian.Uint16(
 					base256Data[49:51])
 				invoice.RoutingInfo = append(
@@ -798,6 +855,14 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 		}
 	}
 
+	if invoice.minFinalCLTVExpiry != nil {
+		finalDelta := uint64ToBase32(uint64(*invoice.minFinalCLTVExpiry))
+		err := writeTaggedField(bufferBase32, fieldTypeC, finalDelta)
+		if err != nil {
+			return err
+		}
+	}
+
 	if invoice.expiry != nil {
 		seconds := invoice.expiry.Seconds()
 		expiry := uint64ToBase32(uint64(seconds))
@@ -841,7 +906,8 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 			base256 := make([]byte, 51)
 			copy(base256[:33], r.PubKey.SerializeCompressed())
 			binary.BigEndian.PutUint64(base256[33:41], r.ShortChanID)
-			binary.BigEndian.PutUint64(base256[41:49], r.Fee)
+			binary.BigEndian.PutUint32(base256[41:45], r.FeeBaseMsat)
+			binary.BigEndian.PutUint32(base256[45:49], r.FeeProportionalMillionths)
 			binary.BigEndian.PutUint16(base256[49:51], r.CltvExpDelta)
 			routingDataBase256 = append(routingDataBase256, base256...)
 		}
