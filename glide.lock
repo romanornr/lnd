@@ -40,11 +40,7 @@ imports:
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/davecgh/go-spew
-<<<<<<< HEAD
-  version: adab96458c51a58dc1783b3335dcce5461522e75
-=======
   version: ecdeabc65495df2dec95d7c4a4c3e021903035e5
->>>>>>> upstream/master
   subpackages:
   - spew
 - name: github.com/go-errors/errors
@@ -190,11 +186,7 @@ imports:
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/genproto
-<<<<<<< HEAD
-  version: f676e0f3ac6395ff1a529ae59a6670878a8371a6
-=======
   version: ee236bd376b077c7a89f260c026c4735b195e459
->>>>>>> upstream/master
   subpackages:
   - googleapis/api/annotations
   - googleapis/rpc/status
