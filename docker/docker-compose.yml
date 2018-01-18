@@ -62,6 +62,36 @@ services:
             - "ltcd:rpcserver"
         entrypoint: ["./start-ltcctl.sh"]
 
+    # via is an image of litecoin node which used as base image for viad and
+    # viactl. The environment variables default values determined on stage of
+    # container start within starting script.
+    via:
+      image: viad
+      build:
+        context: viad/
+      volumes:
+            - shared:/rpc
+            - viacoin:/data
+      environment:
+        - RPCUSER
+        - RPCPASS
+        - NETWORK
+
+    viad:
+        extends: via
+        container_name: viad
+        environment:
+          - DEBUG
+          - MINING_ADDRESS
+        entrypoint: ["./start-viad.sh"]
+
+    viactl:
+        extends: via
+        container_name: viactl
+        links:
+            - "viad:rpcserver"
+        entrypoint: ["./start-viactl.sh"]
+
     lnd:
         image: lnd
         build:
@@ -89,6 +119,12 @@ services:
       links:
           - "btcd:blockchain"
 
+    lnd_via:
+      extends: lnd
+      container_name: lnd_via
+      links:
+          - "viad:blockchain"
+
 volumes:
   # shared volume is need to store the btcd rpc certificates and us it within
   # btcctl and lnd containers.
@@ -103,4 +139,9 @@ volumes:
   # litecoin volume is needed for maintaining blockchain persistance
   # during ltcd container recreation.
   litecoin:
+    driver: local
+
+  # viacoin volume is needed for maintaining blockchain persistance
+  # during viad container recreation.
+  viacoin:
     driver: local
